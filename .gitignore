@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+trades_journal.csv
+atr_swing_results/
+.pytest_cache/

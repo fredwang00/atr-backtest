@@ -78,7 +78,7 @@ def get_next_earnings(ticker, scan_date):
 
 
 def _days_until(scan_ts, earnings_date):
-    """Compute business days between scan date and earnings, handling tz."""
+    """Compute calendar days between scan date and earnings, handling tz."""
     e = pd.Timestamp(earnings_date)
     if e.tzinfo is not None:
         e = e.tz_convert(None)
