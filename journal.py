@@ -77,7 +77,7 @@ def compute_review_stats(path=JOURNAL_PATH):
     df = load_journal(path)
     closed = df[df["exit_price"].notna() & (df["exit_price"] != "")]
     if len(closed) == 0:
-        return {"total": 0, "win_rate": 0, "avg_pnl": 0, "profit_factor": 0}
+        return {"total": 0, "win_rate": 0, "avg_pnl": 0, "profit_factor": 0, "regimes": {}}
 
     pnls = closed["pnl_pct"].astype(float)
     winners = pnls[pnls > 0]
