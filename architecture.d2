@@ -1,0 +1,146 @@
+direction: right
+
+# --- Data Sources ---
+data: External Data {
+  style.fill: "#f0f0f0"
+  style.stroke: "#999"
+
+  yfinance: yfinance {
+    shape: cylinder
+    tooltip: "OHLCV for 10 tickers (SPY, QQQ, AAPL, etc.)"
+  }
+  breadth_csv: "breadth_data/*.csv" {
+    shape: cylinder
+    tooltip: "Pradeep's Stockbee market monitor CSVs (2018-2026)"
+  }
+  earnings_csv: "earnings_cache/*.csv" {
+    shape: cylinder
+    tooltip: "yfinance earnings dates, cached per ticker"
+  }
+}
+
+# --- Core Modules (no internal deps) ---
+core: Core Modules {
+  style.fill: "#e8f4fd"
+
+  backtest: atr_swing_backtest.py {
+    tooltip: |
+      prepare_data(ticker)
+      check_entry_conditions(df, i)
+      run_backtest(df)
+      TICKERS, OUTPUT_DIR
+    |
+  }
+  breadth: breadth.py {
+    tooltip: |
+      load_breadth_data()
+      get_regime(), compute_breadth_health()
+      ratio10_bias()
+    |
+  }
+  earnings: earnings.py {
+    tooltip: |
+      get_earnings_blackout(ticker, start, end)
+      Caches to breadth_data/earnings_cache/
+    |
+  }
+}
+
+# --- Consumer Scripts ---
+consumers: CLI Tools {
+  style.fill: "#e8fde8"
+
+  scanner: scanner.py {
+    tooltip: |
+      python scanner.py [--date YYYY-MM-DD]
+      TRIGGERED / NEAR / QUIET buckets
+      Breadth dashboard + earnings proximity
+    |
+  }
+  journal: journal.py {
+    tooltip: |
+      python journal.py log    (entry/exit)
+      python journal.py review (stats vs backtest)
+      CSV-backed: trades_journal.csv
+    |
+  }
+  compare: compare.py {
+    tooltip: |
+      7 filter configs side-by-side
+      Regime, Ratio10, Earnings, Sizing
+    |
+  }
+}
+
+# --- Outputs ---
+outputs: Outputs {
+  style.fill: "#fdf8e8"
+
+  terminal: Terminal Output {
+    shape: text
+  }
+  results: "atr_swing_results/" {
+    shape: cylinder
+    tooltip: "CSVs, PNGs, comparison tables"
+  }
+  journal_csv: trades_journal.csv {
+    shape: cylinder
+    tooltip: "Pilot trade log (created on first use)"
+  }
+}
+
+# --- Data Source -> Core ---
+data.yfinance -> core.backtest: OHLCV download
+data.breadth_csv -> core.breadth: parse CSVs
+data.yfinance -> core.earnings: earnings dates
+data.earnings_csv -> consumers.scanner: earnings proximity
+
+# --- Core -> Consumers ---
+core.backtest -> consumers.scanner: "TICKERS, prepare_data\ncheck_entry_conditions"
+core.backtest -> consumers.journal: "prepare_data\n(auto-fill levels)"
+core.backtest -> consumers.compare: "TICKERS, prepare_data\nrun_backtest"
+core.breadth -> consumers.scanner: "load_breadth_data\n(regime, sizing)"
+core.breadth -> consumers.journal: "load_breadth_data\n(regime, trend)"
+core.breadth -> consumers.compare: "load_breadth_data\n(regime filter)"
+core.earnings -> consumers.compare: "get_earnings_blackout\n(entry filter)"
+
+# --- Consumers -> Outputs ---
+consumers.scanner -> outputs.terminal: "TRIGGERED/NEAR/QUIET\nbreadth dashboard"
+consumers.journal -> outputs.terminal: review stats
+consumers.journal -> outputs.journal_csv: log entry/exit
+consumers.compare -> outputs.results: "comparison.csv\ntrades_*.csv"
+core.backtest -> outputs.results: "charts, trade logs"
+
+# --- Strategy Reference ---
+strategy: "Strategy: Saty's ATR Levels" {
+  style.fill: "#fff3e0"
+  style.stroke: "#e65100"
+
+  entry: |md
+    ## 6 Entry Conditions
+    1. Squeeze fired (10-bar lookback)
+    2. Momentum in trade direction
+    3. EMA stack (8>9>21>34>50)
+    4. Price crosses 23.6% ATR trigger
+    5. Volume above 20-period SMA
+    6. Close above/below 200 EMA
+  |
+
+  exit: |md
+    ## Exit Rules
+    - Half off @ 61.8% mid-target
+    - Rest @ 100% full-target
+    - Stop @ central pivot (prev close)
+    - Time stop: 15 days max hold
+  |
+
+  sizing: |md
+    ## Breadth Sizing
+    - **FULL**: trend STEADY or better
+    - **HALF**: DETERIORATING or worse
+    - Cuts max DD from -10.9% to -6.2%
+  |
+
+  entry -> exit: trade active
+  sizing -> entry: position size
+}
