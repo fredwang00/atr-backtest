@@ -288,6 +288,43 @@ def get_stop_level(df, idx, direction, trade_trigger):
         return df["Central_Pivot"].iloc[idx]
 
 
+def check_entry_conditions(df, i):
+    """Check all entry conditions for bar i. Returns dict with per-condition results.
+
+    Boolean keys (6 per direction):
+      Long:  squeeze, momentum_long, ema_bull, long_crossover, volume, above_macro
+      Short: squeeze, momentum_short, ema_bear, short_crossover, volume, below_macro
+
+    Price-level keys (for scanner/journal display):
+      long_trigger, short_trigger, mid_long, mid_short, full_long, full_short,
+      central_pivot, atr, close
+    """
+    row = df.iloc[i]
+    prev = df.iloc[i - 1]
+
+    return {
+        "squeeze": bool(row["Recent_Squeeze_Fire"]),
+        "momentum_long": bool(row["Momentum"] > 0),
+        "momentum_short": bool(row["Momentum"] < 0),
+        "ema_bull": bool(row["EMA_Bull_Stack"]),
+        "ema_bear": bool(row["EMA_Bear_Stack"]),
+        "long_crossover": bool(row["Close"] > row["Long_Trigger"] and prev["Close"] <= prev["Long_Trigger"]),
+        "short_crossover": bool(row["Close"] < row["Short_Trigger"] and prev["Close"] >= prev["Short_Trigger"]),
+        "volume": bool(row["Vol_Above_Avg"]),
+        "above_macro": bool(row["Close"] > row[f"EMA_{MACRO_EMA}"]),
+        "below_macro": bool(row["Close"] < row[f"EMA_{MACRO_EMA}"]),
+        "long_trigger": float(row["Long_Trigger"]),
+        "short_trigger": float(row["Short_Trigger"]),
+        "mid_long": float(row["Mid_Long"]),
+        "mid_short": float(row["Mid_Short"]),
+        "full_long": float(row["Full_Long"]),
+        "full_short": float(row["Full_Short"]),
+        "central_pivot": float(row["Central_Pivot"]),
+        "atr": float(row["Prev_ATR"]),
+        "close": float(row["Close"]),
+    }
+
+
 def run_backtest(df, entry_filter=None):
     """
     Scan for entries and simulate trades in a single forward pass.
@@ -310,22 +347,22 @@ def run_backtest(df, entry_filter=None):
             break
 
         row = df.iloc[i]
-        prev = df.iloc[i - 1]
 
         trade = None
+
+        conds = check_entry_conditions(df, i)
 
         # --- LONG ---
         # Crossover: today's close is above today's trigger, AND
         # yesterday's close was at or below yesterday's trigger.
         # Each day compared against its OWN trigger level (not today's).
         long_conditions = (
-            row["Recent_Squeeze_Fire"]
-            and row["Momentum"] > 0
-            and row["EMA_Bull_Stack"]
-            and row["Close"] > row["Long_Trigger"]
-            and prev["Close"] <= prev["Long_Trigger"]
-            and row["Vol_Above_Avg"]
-            and row["Close"] > row[f"EMA_{MACRO_EMA}"]
+            conds["squeeze"]
+            and conds["momentum_long"]
+            and conds["ema_bull"]
+            and conds["long_crossover"]
+            and conds["volume"]
+            and conds["above_macro"]
         )
 
         if long_conditions:
@@ -350,13 +387,12 @@ def run_backtest(df, entry_filter=None):
         # --- SHORT (only if no long triggered) ---
         if trade is None:
             short_conditions = (
-                row["Recent_Squeeze_Fire"]
-                and row["Momentum"] < 0
-                and row["EMA_Bear_Stack"]
-                and row["Close"] < row["Short_Trigger"]
-                and prev["Close"] >= prev["Short_Trigger"]
-                and row["Vol_Above_Avg"]
-                and row["Close"] < row[f"EMA_{MACRO_EMA}"]
+                conds["squeeze"]
+                and conds["momentum_short"]
+                and conds["ema_bear"]
+                and conds["short_crossover"]
+                and conds["volume"]
+                and conds["below_macro"]
             )
 
             if short_conditions:
