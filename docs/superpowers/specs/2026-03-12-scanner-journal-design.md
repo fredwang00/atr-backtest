@@ -10,7 +10,7 @@ The backtest shows 86.8% win rate and Sharpe 3.31 across 242 trades (2018-2026).
 
 ### `scanner.py` (~200 lines)
 
-Checks all 10 tickers for entry conditions after market close. Reuses `prepare_data()` from `atr_swing_backtest.py` and `load_breadth_data()` from `breadth.py`.
+Checks all 10 tickers for entry conditions after market close. Reuses `prepare_data()` from `atr_swing_backtest.py` (returns `(df, emas)` tuple — only `df` is needed) and `load_breadth_data()` from `breadth.py`.
 
 **Usage:**
 ```
@@ -18,32 +18,36 @@ python scanner.py              # today's scan
 python scanner.py --date 2024-03-15  # historical replay
 ```
 
-**For each ticker**, evaluates the most recent bar against all 6 entry conditions:
+**For each ticker**, evaluates the most recent bar against entry conditions per direction. The 6 long conditions are:
 
-1. Recent squeeze fire (within SQUEEZE_LOOKBACK bars)
-2. Momentum direction (positive for long, negative for short)
-3. EMA stack aligned (bullish or bearish)
-4. Price crossed trigger level (crossover: prev close <= prev trigger, today close > today trigger)
-5. Volume above 20-period SMA
-6. Price above/below 200 EMA
+1. `squeeze` — Recent squeeze fire (within SQUEEZE_LOOKBACK bars)
+2. `momentum_long` — Momentum > 0
+3. `ema_bull` — EMA stack bullish (8 > 9 > 21 > 34 > 50)
+4. `long_crossover` — Price crossed trigger (prev close <= prev trigger AND today close > today trigger)
+5. `volume` — Volume above 20-period SMA
+6. `above_macro` — Close > 200 EMA
 
-Classifies each ticker into one of three buckets:
+The 6 short conditions mirror these: `squeeze`, `momentum_short`, `ema_bear`, `short_crossover`, `volume`, `below_macro`.
 
-**TRIGGERED** — All 6 conditions met. This is a signal the backtest would have taken. Output includes: direction (long/short), entry price (trigger level), mid target (61.8%), full target (100% ATR), stop level (central pivot), ATR at entry.
+Each direction is evaluated independently. A ticker's bucket is determined by its best direction:
 
-**NEAR** — 4-5 of 6 conditions met. Shows which conditions passed and which failed, plus distance to trigger level (e.g., "$0.43 below long trigger"). Useful for watchlist — these may trigger tomorrow.
+**TRIGGERED** — All 6 conditions met for long or short (or both, though unlikely). This is a signal the backtest would have taken. Output includes: direction (long/short), entry price (trigger level), mid target (61.8%), full target (100% ATR), stop level (central pivot), ATR at entry.
 
-**QUIET** — Fewer than 4 conditions met. Shows tomorrow's ATR levels (prev close +/- ATR * fib percentages) for reference only.
+**NEAR** — 4-5 of 6 conditions met for at least one direction. Shows which conditions passed and which failed for the best direction, plus distance to trigger level (e.g., "$0.43 below long trigger"). Useful for watchlist — these may trigger tomorrow.
+
+**QUIET** — Fewer than 4 conditions met in either direction. Shows today's ATR levels for reference only.
 
 **Breadth dashboard** (printed once, below the ticker scan):
 - Current regime (from `breadth.py`)
 - Breadth health score and trend label
 - Ratio10 value and bias
-- Position sizing recommendation: "FULL SIZE" when breadth trend is STEADY or better, "HALF SIZE" when DETERIORATING or DETERIORATING_FAST
+- Position sizing recommendation based on breadth trend:
+  - FULL SIZE: IMPROVING, SLIGHTLY_IMPROVING, STEADY, SLIGHTLY_DETERIORATING
+  - HALF SIZE: DETERIORATING, DETERIORATING_FAST
 
-**Earnings proximity**: For each ticker, shows days until next earnings date (from `earnings.py` cache). Flags tickers within the blackout window (2 days before through 1 day after).
+**Earnings proximity**: For each ticker, reads the earnings cache file (`breadth_data/earnings_cache/{ticker}_earnings.csv`) to find the next earnings date after the scan date. Shows days until that date. Flags tickers within the blackout window (2 days before through 1 day after). If no cache file exists, shows "unknown" and suggests running `get_earnings_blackout()` to populate the cache.
 
-**Date handling**: Defaults to the most recent trading day in the downloaded data. The `--date` flag allows replaying historical dates for testing the scanner against known backtest signals.
+**Date handling**: Defaults to the last row in the ticker's DataFrame (the most recent trading day in the downloaded data). The `--date` flag selects the latest trading day on or before the requested date. Errors if the requested date is before the data starts. For weekends/holidays, silently falls back to the prior trading day.
 
 The condition checks reuse the same logic as `run_backtest()` in `atr_swing_backtest.py` but extracted into a helper that returns per-condition pass/fail instead of a binary trade/no-trade. This avoids duplicating the entry logic.
 
@@ -53,13 +57,13 @@ Two modes for managing the trade journal.
 
 **`python journal.py log`** — Interactive prompt to log a trade entry or exit.
 
-For entries, prompts for: ticker, direction, entry price, size, notes. Pre-fills from today's scanner output where possible (reads the ticker's current levels from `prepare_data()`). Automatically captures: date, trigger level, mid/full targets, stop, regime, breadth trend, size_mult recommendation. Appends a row to `trades_journal.csv`.
+For entries, prompts for: ticker, direction, entry price, size, notes. Calls `prepare_data(ticker)` for the specified ticker (one yfinance download, ~2 seconds) to pre-fill levels. Automatically captures: date, trigger level, mid/full targets, stop, regime, breadth trend, size_mult recommendation. Appends a row to `trades_journal.csv`.
 
-For exits (when a trade already has an entry but no exit), prompts for: exit price, exit reason (target_mid / target_full / stop / time / discretionary), notes. Computes pnl_pct and updates the existing row.
+For exits (when a trade already has an entry but no exit), prompts for: exit price, exit reason (target_full / stop / time / discretionary), notes. Computes pnl_pct as `(exit_price - entry_price) / entry_price` for longs (mirror for shorts). This is a simplification vs the backtest's two-leg model (half at mid, half at full) — real pilot trades use a single exit to keep journaling simple. The user can note partial exits in the notes field. Updates the existing row in-place.
 
 **`python journal.py review`** — Reads `trades_journal.csv` and prints:
 - Trade count, win rate, avg P&L, profit factor
-- Comparison line: "Backtest expects: 86.8% WR, +1.10% avg" vs your actuals
+- Comparison line: "Backtest expects: 86.8% WR, +1.10% avg" vs your actuals (equal-weighted — `size_mult` is informational, not applied to journal stats)
 - Sample size warning when < 20 trades ("too few trades to draw conclusions")
 - Regime distribution of your trades vs the backtest's regime distribution
 - List of open trades (entries without exits)
@@ -95,8 +99,8 @@ def check_entry_conditions(df, i):
         "long_crossover": row["Close"] > row["Long_Trigger"] and prev["Close"] <= prev["Long_Trigger"],
         "short_crossover": row["Close"] < row["Short_Trigger"] and prev["Close"] >= prev["Short_Trigger"],
         "volume": bool(row["Vol_Above_Avg"]),
-        "above_macro": row["Close"] > row[f"EMA_200"],
-        "below_macro": row["Close"] < row[f"EMA_200"],
+        "above_macro": row["Close"] > row["EMA_200"],
+        "below_macro": row["Close"] < row["EMA_200"],
         "long_trigger": row["Long_Trigger"],
         "short_trigger": row["Short_Trigger"],
         "mid_long": row["Mid_Long"],
@@ -109,10 +113,12 @@ def check_entry_conditions(df, i):
     }
 ```
 
-Long triggers when: squeeze + momentum_long + ema_bull + long_crossover + volume + above_macro.
-Short triggers when: squeeze + momentum_short + ema_bear + short_crossover + volume + below_macro.
+The 6 long conditions are: `squeeze`, `momentum_long`, `ema_bull`, `long_crossover`, `volume`, `above_macro`.
+The 6 short conditions are: `squeeze`, `momentum_short`, `ema_bear`, `short_crossover`, `volume`, `below_macro`.
 
-`run_backtest()` is refactored to use `check_entry_conditions()` internally. Standalone behavior unchanged — verified by running the backtest and confirming 242 trades, 86.8% WR.
+The price-level keys (`long_trigger`, `mid_long`, etc.) are used by the scanner and journal for display; `run_backtest()` continues reading those values from `df` directly.
+
+`run_backtest()` is refactored to use `check_entry_conditions()` for the boolean conditions only. Standalone behavior unchanged — verified by running the backtest and confirming 242 trades, 86.8% WR.
 
 ## What This Does NOT Include
 
@@ -120,3 +126,4 @@ Short triggers when: squeeze + momentum_short + ema_bear + short_crossover + vol
 - Real-time / intraday scanning
 - Notifications (cron, email, Slack)
 - Options / credit spread scanner (future iteration)
+- Two-leg exit tracking in journal (simplification: single exit per trade)
