@@ -268,6 +268,7 @@ class Trade:
     hold_days: int = 0
     hit_mid: bool = False
     hit_full: bool = False
+    size_mult: float = 1.0
 
 
 def get_stop_level(df, idx, direction, trade_trigger):
@@ -287,7 +288,7 @@ def get_stop_level(df, idx, direction, trade_trigger):
         return df["Central_Pivot"].iloc[idx]
 
 
-def run_backtest(df):
+def run_backtest(df, entry_filter=None):
     """
     Scan for entries and simulate trades in a single forward pass.
     This ensures we never enter a new trade while one is still active
@@ -373,6 +374,11 @@ def run_backtest(df):
                     central_pivot=row["Central_Pivot"],
                     atr_at_entry=row["Prev_ATR"],
                 )
+
+        if trade is not None:
+            # Apply external filter if provided
+            if entry_filter is not None and not entry_filter(df, i, trade.direction):
+                trade = None
 
         if trade is not None:
             simulate_trade(df, trade)
