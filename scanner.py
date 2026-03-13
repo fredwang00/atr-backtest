@@ -64,7 +64,7 @@ def get_next_earnings(ticker, scan_date):
     future = [d for d in dates if pd.Timestamp(d).normalize() >= scan_ts]
     if not future:
         return None
-    return min(future, key=lambda d: abs((pd.Timestamp(d).normalize() - scan_ts).days))
+    return min(future)
 
 
 def print_scan(results, breadth_df, scan_date):
