@@ -172,6 +172,7 @@ def main():
     breadth_df = load_breadth_data("breadth_data")
 
     results = []
+    scan_date = None
     for ticker in TICKERS:
         result = prepare_data(ticker)
         if result is None:
@@ -191,11 +192,12 @@ def main():
         if idx < 1:
             continue
 
-        scan_date = df.index[idx]
+        if scan_date is None:
+            scan_date = df.index[idx]
         conds = check_entry_conditions(df, idx)
         results.append(classify_ticker(ticker, conds))
 
-    if results:
+    if results and scan_date is not None:
         print_scan(results, breadth_df, scan_date)
 
 
