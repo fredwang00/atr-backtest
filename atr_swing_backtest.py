@@ -779,7 +779,6 @@ def run_credit_spread_backtest():
         for dte, mult, label in [(1, 1.0, "1DTE@1.0x"), (5, 1.5, "5DTE@1.5x")]:
             pnls = []
             credit = CS_SPREAD_WIDTH_DOLLARS * CS_CREDIT_PCT
-            max_loss = CS_SPREAD_WIDTH_DOLLARS - credit
 
             for i in range(len(df) - dte):
                 row = df.iloc[i]
@@ -829,7 +828,6 @@ def run_credit_spread_backtest():
             put_pnls = []
             call_pnls = []
             credit = CS_SPREAD_WIDTH_DOLLARS * CS_CREDIT_PCT
-            max_loss = CS_SPREAD_WIDTH_DOLLARS - credit
 
             for i in range(len(df) - dte):
                 row = df.iloc[i]

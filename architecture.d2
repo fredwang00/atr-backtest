@@ -19,13 +19,26 @@ data: External Data {
   }
 }
 
-# --- Core Modules (no internal deps) ---
+# --- Core Modules ---
 core: Core Modules {
   style.fill: "#e8f4fd"
 
+  indicators: indicators.py {
+    tooltip: |
+      IndicatorConfig, DAILY_CONFIG, INTRADAY_CONFIG
+      compute_indicators(df, config)
+      wilders_atr, compute_emas, ttm_squeeze, compute_momentum
+    |
+  }
+  data_loaders: data_loaders.py {
+    tooltip: |
+      download_ohlcv(ticker, start, end)
+      Future: load_polygon_ohlcv, load_tos_csv
+    |
+  }
   backtest: atr_swing_backtest.py {
     tooltip: |
-      prepare_data(ticker)
+      prepare_data(ticker) — thin wrapper
       check_entry_conditions(df, i)
       run_backtest(df)
       TICKERS, OUTPUT_DIR
@@ -70,6 +83,12 @@ consumers: CLI Tools {
       Regime, Ratio10, Earnings, Sizing
     |
   }
+  credit_spread: credit_spread_analysis.py {
+    tooltip: |
+      0DTE/1DTE credit spread edge analysis
+      ±1.0/1.25 ATR, regime filter, comparison grid
+    |
+  }
 }
 
 # --- Outputs ---
@@ -90,9 +109,12 @@ outputs: Outputs {
 }
 
 # --- Data Source -> Core ---
-data.yfinance -> core.backtest: OHLCV download
+data.yfinance -> core.data_loaders: OHLCV download
+core.data_loaders -> core.backtest: download_ohlcv
+core.indicators -> core.backtest: compute_indicators
 data.breadth_csv -> core.breadth: parse CSVs
 data.yfinance -> core.earnings: earnings dates
+core.backtest -> consumers.credit_spread: "prepare_data"
 data.earnings_csv -> consumers.scanner: earnings proximity
 
 # --- Core -> Consumers ---

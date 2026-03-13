@@ -10,7 +10,7 @@ import yfinance as yf
 import pandas as pd
 
 START_DATE = "2018-01-01"
-END_DATE = "2026-03-12"
+END_DATE = None  # None = yfinance defaults to today
 MIN_ROWS = 200
 
 
