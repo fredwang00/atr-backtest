@@ -30,7 +30,6 @@ USAGE:
 Author: Built collaboratively in Claude
 """
 
-import yfinance as yf
 import pandas as pd
 import numpy as np
 import matplotlib
@@ -50,32 +49,23 @@ warnings.filterwarnings('ignore')
 # Tickers to test
 TICKERS = ["SPY", "QQQ", "AAPL", "NVDA", "TSLA", "META", "AMZN", "GOOGL", "MSFT", "AMD"]
 
-# Date range
-START_DATE = "2018-01-01"
-END_DATE = "2026-03-12"
+# Indicator config (imported — these aliases keep existing references working)
+from indicators import DAILY_CONFIG, compute_indicators
+from indicators import wilders_atr, compute_emas, ttm_squeeze, compute_momentum
+from data_loaders import download_ohlcv, START_DATE, END_DATE
 
-# ATR settings (matches Saty's defaults)
-ATR_PERIOD = 14          # Wilder's ATR
-TRIGGER_PCT = 0.236      # 23.6% fib — long/short trigger
-MID_PCT = 0.618          # 61.8% fib — mid-range target
-FULL_PCT = 1.0           # 100% — full ATR target
-
-# EMA stack for trend confirmation
-EMA_PERIODS = [8, 9, 21, 34, 50]  # Must be stacked in order for trend confirmation
-# Also track the 512 EMA as a "macro trend" filter (optional)
-MACRO_EMA = 200  # Use 200 instead of 512 for daily (512 is for intraday)
-
-# TTM Squeeze settings
-BB_PERIOD = 20
-BB_MULT = 2.0
-KC_PERIOD = 20
-KC_MULT = 1.5   # Standard TTM Squeeze uses 1.5x ATR for Keltner
-
-# Volume confirmation
-VOL_AVG_PERIOD = 20  # Trigger candle volume must be above this SMA
-
-# How many bars back to look for a squeeze fire
-SQUEEZE_LOOKBACK = 10  # Squeeze fires once; the move develops over several days
+ATR_PERIOD = DAILY_CONFIG.atr_period
+TRIGGER_PCT = DAILY_CONFIG.trigger_pct
+MID_PCT = DAILY_CONFIG.mid_pct
+FULL_PCT = DAILY_CONFIG.full_pct
+EMA_PERIODS = list(DAILY_CONFIG.ema_periods)
+MACRO_EMA = DAILY_CONFIG.macro_ema
+BB_PERIOD = DAILY_CONFIG.bb_period
+BB_MULT = DAILY_CONFIG.bb_mult
+KC_PERIOD = DAILY_CONFIG.kc_period
+KC_MULT = DAILY_CONFIG.kc_mult
+VOL_AVG_PERIOD = DAILY_CONFIG.vol_avg_period
+SQUEEZE_LOOKBACK = DAILY_CONFIG.squeeze_lookback
 
 # Trade management
 MAX_HOLD_DAYS = 15       # Time stop — exit after this many days
@@ -88,158 +78,23 @@ POSITION_SIZE = 10000    # $ per trade
 OUTPUT_DIR = "atr_swing_results"
 
 
-# ============================================================
-# INDICATOR CALCULATIONS
-# ============================================================
+def prepare_data(ticker, config=DAILY_CONFIG):
+    """Download and compute all indicators for a ticker.
 
-def wilders_atr(high, low, close, period=14):
-    """Wilder's ATR — same smoothing method Saty's indicator uses."""
-    tr1 = high - low
-    tr2 = (high - close.shift(1)).abs()
-    tr3 = (low - close.shift(1)).abs()
-    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-
-    atr = pd.Series(np.nan, index=tr.index)
-    atr.iloc[period - 1] = tr.iloc[:period].mean()
-    for i in range(period, len(atr)):
-        atr.iloc[i] = (atr.iloc[i - 1] * (period - 1) + tr.iloc[i]) / period
-    return atr
-
-
-def compute_emas(close, periods):
-    """Compute multiple EMAs and return as a dict."""
-    emas = {}
-    for p in periods:
-        emas[p] = close.ewm(span=p, adjust=False).mean()
-    return emas
-
-
-def ttm_squeeze(high, low, close, bb_period=20, bb_mult=2.0, kc_period=20, kc_mult=1.5):
-    """
-    TTM Squeeze detection.
-    Squeeze is ON when Bollinger Bands are inside Keltner Channels.
-    Squeeze FIRES when it transitions from ON to OFF (bands expand).
+    Args:
+        ticker: Stock ticker symbol.
+        config: IndicatorConfig for indicator parameters.
 
     Returns:
-        squeeze_on: bool series — True when in squeeze
-        squeeze_fired: bool series — True on the bar where squeeze releases
+        (df, {}) tuple where df is the enriched DataFrame,
+        or None if download fails.
     """
-    # Bollinger Bands
-    bb_mid = close.rolling(bb_period).mean()
-    bb_std = close.rolling(bb_period).std()
-    bb_upper = bb_mid + bb_mult * bb_std
-    bb_lower = bb_mid - bb_mult * bb_std
-
-    # Keltner Channels (using ATR)
-    kc_mid = close.rolling(kc_period).mean()
-    kc_atr = wilders_atr(high, low, close, kc_period)
-    kc_upper = kc_mid + kc_mult * kc_atr
-    kc_lower = kc_mid - kc_mult * kc_atr
-
-    # Squeeze is ON when BB is inside KC
-    squeeze_on = (bb_lower > kc_lower) & (bb_upper < kc_upper)
-
-    # Squeeze fires when it goes from ON to OFF
-    squeeze_fired = squeeze_on.shift(1).fillna(False) & ~squeeze_on
-
-    return squeeze_on, squeeze_fired
-
-
-def compute_momentum(high, low, close, period=20):
-    """
-    Momentum oscillator for squeeze direction, approximating TTM Squeeze.
-
-    The real TTM Squeeze Pro uses linear regression of
-    (close - midline of Keltner/Donchian). We approximate with
-    close minus the average of (highest high + lowest low)/2 and SMA,
-    which captures whether price is above or below the "center of gravity."
-
-    Positive = bullish, Negative = bearish.
-    """
-    # Donchian midline
-    highest = high.rolling(period).max()
-    lowest = low.rolling(period).min()
-    donchian_mid = (highest + lowest) / 2
-
-    # SMA midline
-    sma_mid = close.rolling(period).mean()
-
-    # Average of the two midlines (closer to TTM Squeeze Pro approach)
-    combined_mid = (donchian_mid + sma_mid) / 2
-
-    return close - combined_mid
-
-
-# ============================================================
-# DATA PREPARATION
-# ============================================================
-
-def prepare_data(ticker):
-    """Download and compute all indicators for a ticker."""
-    print(f"  Downloading {ticker}...")
-    df = yf.download(ticker, start=START_DATE, end=END_DATE, auto_adjust=False, progress=False)
-
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-
-    if len(df) < 200:
-        print(f"  Not enough data for {ticker}")
+    df = download_ohlcv(ticker)
+    if df is None:
         return None
 
-    # Core ATR levels
-    df["ATR"] = wilders_atr(df["High"], df["Low"], df["Close"], ATR_PERIOD)
-    df["Prev_Close"] = df["Close"].shift(1)
-    # Use previous day's ATR for level computation (avoids look-ahead bias:
-    # today's ATR includes today's range, which we can't know at market open)
-    df["Prev_ATR"] = df["ATR"].shift(1)
-
-    # ATR Levels from previous close and previous ATR
-    df["Long_Trigger"] = df["Prev_Close"] + TRIGGER_PCT * df["Prev_ATR"]
-    df["Short_Trigger"] = df["Prev_Close"] - TRIGGER_PCT * df["Prev_ATR"]
-    df["Mid_Long"] = df["Prev_Close"] + MID_PCT * df["Prev_ATR"]
-    df["Mid_Short"] = df["Prev_Close"] - MID_PCT * df["Prev_ATR"]
-    df["Full_Long"] = df["Prev_Close"] + FULL_PCT * df["Prev_ATR"]
-    df["Full_Short"] = df["Prev_Close"] - FULL_PCT * df["Prev_ATR"]
-    df["Central_Pivot"] = df["Prev_Close"]
-
-    # EMAs
-    emas = compute_emas(df["Close"], EMA_PERIODS + [MACRO_EMA])
-    for p in EMA_PERIODS + [MACRO_EMA]:
-        df[f"EMA_{p}"] = emas[p]
-
-    # EMA stack check (vectorized — compare adjacent EMA columns)
-    bull_stack = pd.Series(True, index=df.index)
-    bear_stack = pd.Series(True, index=df.index)
-    for j in range(len(EMA_PERIODS) - 1):
-        shorter = df[f"EMA_{EMA_PERIODS[j]}"]
-        longer = df[f"EMA_{EMA_PERIODS[j + 1]}"]
-        bull_stack = bull_stack & (shorter > longer)
-        bear_stack = bear_stack & (shorter < longer)
-    df["EMA_Bull_Stack"] = bull_stack
-    df["EMA_Bear_Stack"] = bear_stack
-
-    # TTM Squeeze
-    df["Squeeze_On"], df["Squeeze_Fired"] = ttm_squeeze(
-        df["High"], df["Low"], df["Close"],
-        BB_PERIOD, BB_MULT, KC_PERIOD, KC_MULT
-    )
-
-    # Momentum direction (for squeeze fire direction)
-    df["Momentum"] = compute_momentum(df["High"], df["Low"], df["Close"], BB_PERIOD)
-
-    # Volume confirmation
-    df["Vol_SMA"] = df["Volume"].rolling(VOL_AVG_PERIOD).mean()
-    df["Vol_Above_Avg"] = df["Volume"] > df["Vol_SMA"]
-
-    # Recent squeeze fire (within last N bars — squeeze fires once,
-    # but the move can develop over several days)
-    df["Recent_Squeeze_Fire"] = df["Squeeze_Fired"].rolling(SQUEEZE_LOOKBACK).max().fillna(0).astype(bool)
-
-    # Drop rows without enough data
-    df = df.dropna(subset=["ATR", "Prev_ATR", "Prev_Close", f"EMA_{MACRO_EMA}"]).copy()
-    df = df.iloc[max(EMA_PERIODS + [MACRO_EMA, BB_PERIOD, ATR_PERIOD]) + 5:]
-
-    return df, emas
+    df = compute_indicators(df, config)
+    return df, {}
 
 
 # ============================================================
@@ -344,9 +199,6 @@ def run_backtest(df, entry_filter=None):
                 in_trade = False
             else:
                 continue  # Still in a trade, skip entry scanning
-
-        if i > len(df) - 3:
-            break
 
         row = df.iloc[i]
 
@@ -629,11 +481,8 @@ def print_trade_summary(all_trades, ticker="ALL"):
         # Calculate using actual trade dates for proper annualization
         first_trade = trades[0].entry_date
         last_trade = trades[-1].exit_date or trades[-1].entry_date
-        trading_days = (last_trade - first_trade).days * 252 / 365.25
-        if trading_days > 0:
-            trades_per_year = n / (trading_days / 252)
-        else:
-            trades_per_year = n
+        years = (last_trade - first_trade).days / 365.25
+        trades_per_year = n / years if years > 0 else n
         sharpe = (np.mean(pnls) / np.std(pnls)) * np.sqrt(trades_per_year)
     else:
         sharpe = 0.0
@@ -1064,7 +913,7 @@ def main():
             if result is None:
                 continue
 
-            df, emas = result
+            df, _ = result
             df.attrs["ticker"] = ticker
 
             # Run backtest (scan entries + simulate trades in one pass,
