@@ -17,14 +17,14 @@ def test_check_entry_conditions_returns_dict():
         assert isinstance(conds[key], (int, float)), f"{key} should be numeric"
 
 
-def test_backtest_unchanged_after_refactor():
-    """Verify the refactored run_backtest produces identical results."""
+def test_backtest_produces_trades():
+    """Verify run_backtest still works after refactor — produces completed trades."""
     from atr_swing_backtest import run_backtest
     result = prepare_data("SPY")
     assert result is not None
     df, _ = result
     df.attrs["ticker"] = "SPY"
     trades = run_backtest(df)
-    assert len(trades) > 0
+    assert len(trades) >= 10  # SPY should have meaningful trade count
     for t in trades:
         assert t.exit_price is not None

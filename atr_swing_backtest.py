@@ -299,6 +299,8 @@ def check_entry_conditions(df, i):
       long_trigger, short_trigger, mid_long, mid_short, full_long, full_short,
       central_pivot, atr, close
     """
+    if i < 1:
+        raise ValueError(f"check_entry_conditions requires i >= 1, got {i}")
     row = df.iloc[i]
     prev = df.iloc[i - 1]
 
