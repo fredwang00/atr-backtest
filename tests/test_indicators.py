@@ -41,3 +41,72 @@ def test_wilders_atr_length():
     assert len(atr) == len(high)
     assert atr.iloc[:13].isna().all()
     assert not np.isnan(atr.iloc[13])
+
+
+def test_compute_indicators_produces_expected_columns():
+    """compute_indicators adds all ATR level, EMA, squeeze, and volume columns."""
+    from indicators import compute_indicators, DAILY_CONFIG
+
+    np.random.seed(42)
+    n = 300
+    close = 100 + np.cumsum(np.random.randn(n) * 0.5)
+    high = close + np.abs(np.random.randn(n) * 0.3)
+    low = close - np.abs(np.random.randn(n) * 0.3)
+    dates = pd.bdate_range("2020-01-01", periods=n)
+
+    df = pd.DataFrame({
+        "Open": close + np.random.randn(n) * 0.1,
+        "High": high,
+        "Low": low,
+        "Close": close,
+        "Volume": np.random.randint(1_000_000, 10_000_000, n),
+    }, index=dates)
+
+    result = compute_indicators(df, config=DAILY_CONFIG)
+
+    for col in ["ATR", "Prev_ATR", "Prev_Close", "Central_Pivot",
+                 "Long_Trigger", "Short_Trigger", "Mid_Long", "Mid_Short",
+                 "Full_Long", "Full_Short"]:
+        assert col in result.columns, f"Missing column: {col}"
+
+    for p in list(DAILY_CONFIG.ema_periods) + [DAILY_CONFIG.macro_ema]:
+        assert f"EMA_{p}" in result.columns
+
+    assert "EMA_Bull_Stack" in result.columns
+    assert "EMA_Bear_Stack" in result.columns
+    assert "Squeeze_On" in result.columns
+    assert "Squeeze_Fired" in result.columns
+    assert "Recent_Squeeze_Fire" in result.columns
+    assert "Momentum" in result.columns
+    assert "Vol_SMA" in result.columns
+    assert "Vol_Above_Avg" in result.columns
+
+    assert len(result) < n
+    assert len(result) > 0
+    assert not result["Prev_ATR"].isna().any()
+    assert not result[f"EMA_{DAILY_CONFIG.macro_ema}"].isna().any()
+
+
+def test_compute_indicators_uses_config():
+    """Passing a custom config changes which EMAs are computed."""
+    from indicators import compute_indicators, IndicatorConfig
+
+    np.random.seed(42)
+    n = 300
+    close = 100 + np.cumsum(np.random.randn(n) * 0.5)
+    high = close + np.abs(np.random.randn(n) * 0.3)
+    low = close - np.abs(np.random.randn(n) * 0.3)
+    dates = pd.bdate_range("2020-01-01", periods=n)
+
+    df = pd.DataFrame({
+        "Open": close + np.random.randn(n) * 0.1,
+        "High": high,
+        "Low": low,
+        "Close": close,
+        "Volume": np.random.randint(1_000_000, 10_000_000, n),
+    }, index=dates)
+
+    custom = IndicatorConfig(macro_ema=512)
+    result = compute_indicators(df, config=custom)
+    assert "EMA_512" in result.columns
+    assert "EMA_200" not in result.columns

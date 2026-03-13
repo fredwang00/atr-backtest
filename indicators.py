@@ -109,3 +109,72 @@ def compute_momentum(high, low, close, period=20):
     combined_mid = (donchian_mid + sma_mid) / 2
 
     return close - combined_mid
+
+
+def compute_indicators(df, config=DAILY_CONFIG):
+    """Apply all technical indicators to an OHLCV DataFrame.
+
+    Args:
+        df: DataFrame with Open, High, Low, Close, Volume columns and DatetimeIndex.
+        config: IndicatorConfig with indicator parameters.
+
+    Returns:
+        Enriched DataFrame with warmup rows trimmed. Does not modify the input.
+    """
+    df = df.copy()
+    ema_periods = list(config.ema_periods)
+
+    # Core ATR levels
+    df["ATR"] = wilders_atr(df["High"], df["Low"], df["Close"], config.atr_period)
+    df["Prev_Close"] = df["Close"].shift(1)
+    df["Prev_ATR"] = df["ATR"].shift(1)
+
+    df["Long_Trigger"] = df["Prev_Close"] + config.trigger_pct * df["Prev_ATR"]
+    df["Short_Trigger"] = df["Prev_Close"] - config.trigger_pct * df["Prev_ATR"]
+    df["Mid_Long"] = df["Prev_Close"] + config.mid_pct * df["Prev_ATR"]
+    df["Mid_Short"] = df["Prev_Close"] - config.mid_pct * df["Prev_ATR"]
+    df["Full_Long"] = df["Prev_Close"] + config.full_pct * df["Prev_ATR"]
+    df["Full_Short"] = df["Prev_Close"] - config.full_pct * df["Prev_ATR"]
+    df["Central_Pivot"] = df["Prev_Close"]
+
+    # EMAs
+    all_ema_periods = ema_periods + [config.macro_ema]
+    emas = compute_emas(df["Close"], all_ema_periods)
+    for p in all_ema_periods:
+        df[f"EMA_{p}"] = emas[p]
+
+    # EMA stack check
+    bull_stack = pd.Series(True, index=df.index)
+    bear_stack = pd.Series(True, index=df.index)
+    for j in range(len(ema_periods) - 1):
+        shorter = df[f"EMA_{ema_periods[j]}"]
+        longer = df[f"EMA_{ema_periods[j + 1]}"]
+        bull_stack = bull_stack & (shorter > longer)
+        bear_stack = bear_stack & (shorter < longer)
+    df["EMA_Bull_Stack"] = bull_stack
+    df["EMA_Bear_Stack"] = bear_stack
+
+    # TTM Squeeze
+    df["Squeeze_On"], df["Squeeze_Fired"] = ttm_squeeze(
+        df["High"], df["Low"], df["Close"],
+        config.bb_period, config.bb_mult, config.kc_period, config.kc_mult
+    )
+
+    # Momentum
+    df["Momentum"] = compute_momentum(df["High"], df["Low"], df["Close"], config.bb_period)
+
+    # Volume confirmation
+    df["Vol_SMA"] = df["Volume"].rolling(config.vol_avg_period).mean()
+    df["Vol_Above_Avg"] = df["Volume"] > df["Vol_SMA"]
+
+    # Recent squeeze fire
+    df["Recent_Squeeze_Fire"] = (
+        df["Squeeze_Fired"].rolling(config.squeeze_lookback).max().fillna(0).astype(bool)
+    )
+
+    # Trim warmup rows
+    df = df.dropna(subset=["ATR", "Prev_ATR", "Prev_Close", f"EMA_{config.macro_ema}"]).copy()
+    warmup = max(all_ema_periods + [config.bb_period, config.atr_period]) + 5
+    df = df.iloc[warmup:]
+
+    return df
