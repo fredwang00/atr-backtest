@@ -74,8 +74,6 @@ def get_regime(df, idx):
     r10 = row["ratio10"]
     r5 = row["ratio5"]
     t = row["t2108"]
-    d4 = row["down4"]
-    u4 = row["up4"]
 
     # 1. EXTREME_BEARISH
     if qUp < 300 or t < 20:

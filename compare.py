@@ -8,8 +8,8 @@ import numpy as np
 import os
 
 from atr_swing_backtest import (
-    TICKERS, prepare_data, run_backtest, print_trade_summary,
-    trades_to_dataframe, OUTPUT_DIR, POSITION_SIZE,
+    TICKERS, prepare_data, run_backtest,
+    trades_to_dataframe, OUTPUT_DIR,
 )
 from breadth import load_breadth_data
 from earnings import get_earnings_blackout
@@ -152,6 +152,19 @@ def main():
         ("+Regime+Earn+Sizing", make_combined_filter(regime_filter, earnings_filter)),
     ]
 
+    # Prepare data once per ticker (avoid redundant yfinance downloads)
+    print("\nPreparing ticker data...")
+    ticker_data = {}
+    for ticker in TICKERS:
+        try:
+            result = prepare_data(ticker)
+            if result is not None:
+                df, _ = result
+                df.attrs["ticker"] = ticker
+                ticker_data[ticker] = df
+        except Exception as e:
+            print(f"  ERROR on {ticker}: {e}")
+
     all_results = {}
     all_trade_logs = {}
 
@@ -159,18 +172,10 @@ def main():
         print(f"\nRunning: {config_name}...")
         all_trades = []
 
-        for ticker in TICKERS:
-            try:
-                result = prepare_data(ticker)
-                if result is None:
-                    continue
-                df, _ = result
-                df.attrs["ticker"] = ticker
-                trades = run_backtest(df, entry_filter=entry_filter)
-                add_regime_at_entry(trades, breadth_df)
-                all_trades.extend(trades)
-            except Exception as e:
-                print(f"  ERROR on {ticker}: {e}")
+        for ticker, df in ticker_data.items():
+            trades = run_backtest(df, entry_filter=entry_filter)
+            add_regime_at_entry(trades, breadth_df)
+            all_trades.extend(trades)
 
         # Apply half-sizing when breadth trend is deteriorating
         if "Sizing" in config_name:
