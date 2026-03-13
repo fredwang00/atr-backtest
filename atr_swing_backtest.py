@@ -51,7 +51,6 @@ TICKERS = ["SPY", "QQQ", "AAPL", "NVDA", "TSLA", "META", "AMZN", "GOOGL", "MSFT"
 
 # Indicator config (imported — these aliases keep existing references working)
 from indicators import DAILY_CONFIG, compute_indicators
-from indicators import wilders_atr, compute_emas, ttm_squeeze, compute_momentum
 from data_loaders import download_ohlcv, START_DATE, END_DATE
 
 ATR_PERIOD = DAILY_CONFIG.atr_period

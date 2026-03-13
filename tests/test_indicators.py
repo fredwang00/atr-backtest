@@ -110,3 +110,35 @@ def test_compute_indicators_uses_config():
     result = compute_indicators(df, config=custom)
     assert "EMA_512" in result.columns
     assert "EMA_200" not in result.columns
+
+
+def _make_mock_ohlcv(n=300):
+    """Create synthetic OHLCV data for testing."""
+    np.random.seed(42)
+    close = 100 + np.cumsum(np.random.randn(n) * 0.5)
+    dates = pd.bdate_range("2020-01-01", periods=n)
+    return pd.DataFrame({
+        "Open": close + np.random.randn(n) * 0.1,
+        "High": close + np.abs(np.random.randn(n) * 0.3),
+        "Low": close - np.abs(np.random.randn(n) * 0.3),
+        "Close": close,
+        "Volume": np.random.randint(1_000_000, 10_000_000, n),
+    }, index=dates)
+
+
+def test_prepare_data_returns_tuple():
+    """prepare_data still returns (df, dict) tuple for backward compat."""
+    from unittest.mock import patch
+    from atr_swing_backtest import prepare_data
+
+    mock_df = _make_mock_ohlcv()
+    with patch("data_loaders.yf.download", return_value=mock_df):
+        result = prepare_data("SPY")
+
+    assert result is not None
+    df, extra = result
+    assert isinstance(df, pd.DataFrame)
+    assert isinstance(extra, dict)
+    assert "Full_Long" in df.columns
+    assert "EMA_200" in df.columns
+    assert "Recent_Squeeze_Fire" in df.columns
