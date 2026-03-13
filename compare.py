@@ -149,6 +149,7 @@ def main():
         ("+Regime+Earnings", make_combined_filter(regime_filter, earnings_filter)),
         ("+Ratio10", ratio10_filter),
         ("+Ratio10+Earnings", make_combined_filter(ratio10_filter, earnings_filter)),
+        ("+Regime+Earn+Sizing", make_combined_filter(regime_filter, earnings_filter)),
     ]
 
     all_results = {}
@@ -170,6 +171,16 @@ def main():
                 all_trades.extend(trades)
             except Exception as e:
                 print(f"  ERROR on {ticker}: {e}")
+
+        # Apply half-sizing when breadth trend is deteriorating
+        if "Sizing" in config_name:
+            for t in all_trades:
+                mask = breadth_df.index <= t.entry_date
+                if mask.any():
+                    trend = breadth_df.loc[mask].iloc[-1]["breadth_trend"]
+                    if trend in REDUCE_SIZE_TRENDS:
+                        t.size_mult = 0.5
+                        t.pnl_pct *= 0.5
 
         stats = compute_stats(all_trades)
         all_results[config_name] = stats
