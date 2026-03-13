@@ -57,9 +57,11 @@ Two modes for managing the trade journal.
 
 **`python journal.py log`** — Interactive prompt to log a trade entry or exit.
 
-For entries, prompts for: ticker, direction, entry price, size, notes. Calls `prepare_data(ticker)` for the specified ticker (one yfinance download, ~2 seconds) to pre-fill levels. Automatically captures: date, trigger level, mid/full targets, stop, regime, breadth trend, size_mult recommendation. Appends a row to `trades_journal.csv`.
+First prompt asks: `(1) New entry` or `(2) Close existing trade`. If (2) is selected but no open trades exist, prints a message and falls back to (1).
 
-For exits (when a trade already has an entry but no exit), prompts for: exit price, exit reason (target_full / stop / time / discretionary), notes. Computes pnl_pct as `(exit_price - entry_price) / entry_price` for longs (mirror for shorts). This is a simplification vs the backtest's two-leg model (half at mid, half at full) — real pilot trades use a single exit to keep journaling simple. The user can note partial exits in the notes field. Updates the existing row in-place.
+For new entries, prompts for: ticker, direction, entry price, size, notes. Calls `prepare_data(ticker)` for the specified ticker (one yfinance download, ~2 seconds) to pre-fill levels. Automatically captures: date, trigger level, mid/full targets, stop, regime, breadth trend, size_mult recommendation. Appends a row to `trades_journal.csv`.
+
+For closing trades, lists all open trades (entries without exits) numbered for selection. After the user picks one, prompts for: exit price, exit reason (target_full / stop / time / discretionary), notes. Computes pnl_pct as `(exit_price - entry_price) / entry_price` for longs (mirror for shorts). This is a simplification vs the backtest's two-leg model (half at mid, half at full) — real pilot trades use a single exit to keep journaling simple. The user can note partial exits in the notes field. Updates the existing row in-place.
 
 **`python journal.py review`** — Reads `trades_journal.csv` and prints:
 - Trade count, win rate, avg P&L, profit factor
