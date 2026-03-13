@@ -26,6 +26,10 @@ Backtesting Saty Mahajan's ATR Levels swing trading strategy to determine if the
 
 ## Key files
 - `atr_swing_backtest.py` — Main backtest script (ready to run)
+- `breadth.py` — Pradeep's market monitor breadth parser + regime classifier
+- `earnings.py` — Earnings blackout filter (yfinance-based, cached)
+- `compare.py` — Runs 7 filter configurations side-by-side
+- `breadth_data/` — Raw breadth CSVs from Google Sheets (2018-2026)
 - Uses yfinance for data, tests SPY/QQQ/AAPL/NVDA/TSLA/META/AMZN/GOOGL/MSFT/AMD
 - Outputs: charts (PNG), trade log (CSV), summary stats (CSV) to `atr_swing_results/`
 
@@ -43,16 +47,20 @@ Backtesting Saty Mahajan's ATR Levels swing trading strategy to determine if the
 11. Removed vestigial `emas` parameter from `run_backtest()`
 
 ## Current results (as of 2026-03-12)
-- 402 trades across 10 tickers, 2018-2026
-- 85% win rate, profit factor 5.03, Sharpe 4.86
-- Avg P&L +1.11% per trade, max DD -10.9%
-- Tail risk from gap stops (tariff shock, earnings)
+- Baseline: 242 trades, 86.8% WR, profit factor 4.18, Sharpe 3.31, max DD -10.9%
+- Breadth comparison (7 configs via compare.py):
+  - Baseline:             242 trades, WR 86.8%, Sharpe 3.31, PF 4.18, MaxDD -10.9%
+  - +Earnings:            217 trades, WR 86.2%, Sharpe 3.08, PF 4.15, MaxDD -10.9%
+  - +Regime:              154 trades, WR 84.4%, Sharpe 2.33, PF 3.61, MaxDD -11.0%
+  - +Regime+Earnings:     141 trades, WR 83.7%, Sharpe 2.15, PF 3.47, MaxDD -11.0%
+  - +Ratio10:             225 trades, WR 86.2%, Sharpe 3.17, PF 4.22, MaxDD -10.9%
+  - +Ratio10+Earnings:    202 trades, WR 85.6%, Sharpe 2.99, PF 4.27, MaxDD -10.9%
+  - +Regime+Earn+Sizing:  141 trades, WR 83.7%, Sharpe 3.00, PF 4.59, MaxDD -6.2%
 
 ## What to do next
-1. Integrate Pradeep's market monitor breadth data as a regime filter
-2. Add earnings blackout filter
-3. Compare filtered vs unfiltered results (breadth.py, earnings.py, compare.py)
-4. Parameter sensitivity: vary STOP_LOSS_MODE, TRIGGER_PCT, MAX_HOLD_DAYS, SQUEEZE_LOOKBACK
+1. Parameter sensitivity: vary STOP_LOSS_MODE, TRIGGER_PCT, MAX_HOLD_DAYS, SQUEEZE_LOOKBACK
+2. Walk-forward validation: in-sample (2018-2022) / out-of-sample (2023-2026)
+3. 0DTE/1DTE credit spreads with realistic bid/ask pricing
 
 ## Broader context
 - User is learning this strategy alongside VPA (Volume Price Analysis) and market structure
