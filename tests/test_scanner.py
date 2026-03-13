@@ -1,3 +1,5 @@
+import subprocess
+
 from atr_swing_backtest import check_entry_conditions, prepare_data
 from scanner import classify_ticker, LONG_CONDS, SHORT_CONDS
 
@@ -93,3 +95,15 @@ def test_classify_short_triggered():
     result = classify_ticker("TEST", conds)
     assert result["bucket"] == "TRIGGERED"
     assert result["direction"] == "short"
+
+
+def test_scanner_runs_without_error():
+    """Integration test: scanner.py runs and produces output."""
+    result = subprocess.run(
+        ["python", "scanner.py", "--date", "2024-06-15"],
+        capture_output=True, text=True, timeout=120,
+        cwd="/Users/fwang/code/atr-backtest",
+    )
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    assert "ATR SWING SCANNER" in result.stdout
+    assert "BREADTH DASHBOARD" in result.stdout

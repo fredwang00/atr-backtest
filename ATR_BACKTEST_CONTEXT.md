@@ -30,6 +30,9 @@ Backtesting Saty Mahajan's ATR Levels swing trading strategy to determine if the
 - `earnings.py` — Earnings blackout filter (yfinance-based, cached)
 - `compare.py` — Runs 7 filter configurations side-by-side
 - `breadth_data/` — Raw breadth CSVs from Google Sheets (2018-2026)
+- `scanner.py` — Daily setup scanner (run after close)
+- `journal.py` — Trade journal logging and review
+- `trades_journal.csv` — Pilot trade log (created on first use)
 - Uses yfinance for data, tests SPY/QQQ/AAPL/NVDA/TSLA/META/AMZN/GOOGL/MSFT/AMD
 - Outputs: charts (PNG), trade log (CSV), summary stats (CSV) to `atr_swing_results/`
 

@@ -60,11 +60,32 @@ def get_next_earnings(ticker, scan_date):
         return None
 
     dates = pd.read_csv(cache_path, parse_dates=["date"])["date"].tolist()
-    scan_ts = pd.Timestamp(scan_date).normalize()
-    future = [d for d in dates if pd.Timestamp(d).normalize() >= scan_ts]
+    scan_ts = pd.Timestamp(scan_date)
+    if scan_ts.tzinfo is not None:
+        scan_ts = scan_ts.tz_convert(None)
+    scan_ts = scan_ts.normalize()
+
+    def _to_naive(d):
+        ts = pd.Timestamp(d)
+        if ts.tzinfo is not None:
+            ts = ts.tz_convert(None)
+        return ts.normalize()
+
+    future = [d for d in dates if _to_naive(d) >= scan_ts]
     if not future:
         return None
     return min(future)
+
+
+def _days_until(scan_ts, earnings_date):
+    """Compute business days between scan date and earnings, handling tz."""
+    e = pd.Timestamp(earnings_date)
+    if e.tzinfo is not None:
+        e = e.tz_convert(None)
+    s = pd.Timestamp(scan_ts)
+    if s.tzinfo is not None:
+        s = s.tz_convert(None)
+    return (e.normalize() - s.normalize()).days
 
 
 def print_scan(results, breadth_df, scan_date):
@@ -110,7 +131,7 @@ def print_scan(results, breadth_df, scan_date):
             earnings = get_next_earnings(r["ticker"], scan_date)
             earn_str = ""
             if earnings:
-                days = (pd.Timestamp(earnings).normalize() - scan_ts.normalize()).days
+                days = _days_until(scan_ts, earnings)
                 if days <= 3:
                     earn_str = f" ⚠ EARNINGS IN {days}d"
                 else:
@@ -134,7 +155,7 @@ def print_scan(results, breadth_df, scan_date):
             earnings = get_next_earnings(r["ticker"], scan_date)
             earn_str = ""
             if earnings:
-                days = (pd.Timestamp(earnings).normalize() - scan_ts.normalize()).days
+                days = _days_until(scan_ts, earnings)
                 if days <= 3:
                     earn_str = f" ⚠ EARNINGS IN {days}d"
 
