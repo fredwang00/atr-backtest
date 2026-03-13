@@ -26,3 +26,18 @@ def test_config_is_frozen():
     import pytest
     with pytest.raises(AttributeError):
         DAILY_CONFIG.atr_period = 20
+
+
+def test_wilders_atr_length():
+    """wilders_atr returns a Series the same length as input."""
+    from indicators import wilders_atr
+    high = pd.Series([10, 11, 12, 11, 13, 14, 12, 15, 14, 13,
+                       12, 11, 14, 15, 16, 13, 12, 11, 14, 15])
+    low = pd.Series([9, 10, 10, 9, 11, 12, 10, 13, 12, 11,
+                      10, 9, 12, 13, 14, 11, 10, 9, 12, 13])
+    close = pd.Series([9.5, 10.5, 11, 10, 12, 13, 11, 14, 13, 12,
+                        11, 10, 13, 14, 15, 12, 11, 10, 13, 14])
+    atr = wilders_atr(high, low, close, period=14)
+    assert len(atr) == len(high)
+    assert atr.iloc[:13].isna().all()
+    assert not np.isnan(atr.iloc[13])
