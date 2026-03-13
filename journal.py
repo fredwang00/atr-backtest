@@ -9,7 +9,6 @@ Usage:
 import sys
 import os
 import pandas as pd
-import numpy as np
 
 JOURNAL_PATH = "trades_journal.csv"
 JOURNAL_COLUMNS = [
@@ -47,8 +46,8 @@ def add_entry(entry_dict, path=JOURNAL_PATH):
 def close_trade(trade_idx, exit_price, exit_date, exit_reason, notes="", path=JOURNAL_PATH):
     """Close an open trade by filling exit fields and computing pnl_pct."""
     df = load_journal(path)
-    entry_price = float(df.iloc[trade_idx]["entry_price"])
-    direction = df.iloc[trade_idx]["direction"]
+    entry_price = float(df.loc[trade_idx, "entry_price"])
+    direction = df.loc[trade_idx, "direction"]
 
     if direction == "long":
         pnl_pct = (exit_price - entry_price) / entry_price * 100
@@ -156,7 +155,8 @@ def interactive_log():
             regime = brow["regime"]
             breadth_trend = brow["breadth_trend"]
             size_mult = 0.5 if breadth_trend in {"DETERIORATING", "DETERIORATING_FAST"} else 1.0
-        except Exception:
+        except Exception as e:
+            print(f"  [warning] Could not fetch market data: {e}")
             trigger = mid = full = stop = 0.0
             regime = "UNKNOWN"
             breadth_trend = "UNKNOWN"
