@@ -88,10 +88,23 @@ def get_open_trades(path=JOURNAL_PATH):
     return df[df["exit_date"].isna() | (df["exit_date"] == "")]
 
 
-def compute_review_stats(path=JOURNAL_PATH):
-    """Compute review statistics from closed trades."""
+def compute_review_stats(path=JOURNAL_PATH, trade_type=None):
+    """Compute review statistics from closed trades.
+
+    Args:
+        path: Path to journal CSV.
+        trade_type: Filter to "swing" or "credit_spread". None = all trades.
+    """
     df = load_journal(path)
     closed = df[df["exit_price"].notna() & (df["exit_price"] != "")]
+
+    if trade_type is not None and len(closed) > 0:
+        if "trade_type" in closed.columns:
+            tt = closed["trade_type"].fillna("").replace("", "swing")
+        else:
+            tt = pd.Series("swing", index=closed.index)
+        closed = closed[tt == trade_type]
+
     if len(closed) == 0:
         return {"total": 0, "win_rate": 0, "avg_pnl": 0, "profit_factor": 0, "regimes": {}}
 
@@ -103,13 +116,21 @@ def compute_review_stats(path=JOURNAL_PATH):
     gross_loss = abs(losers.sum()) if len(losers) > 0 else 0
     pf = gross_profit / gross_loss if gross_loss > 0 else float("inf")
 
-    return {
+    result = {
         "total": len(closed),
         "win_rate": len(winners) / len(closed) * 100,
         "avg_pnl": pnls.mean(),
         "profit_factor": pf,
         "regimes": closed["regime"].value_counts().to_dict() if "regime" in closed.columns else {},
     }
+
+    # Add dollar stats for credit spreads
+    if trade_type == "credit_spread" and "pnl_dollars" in closed.columns:
+        dollars = closed["pnl_dollars"].astype(float)
+        result["avg_pnl_dollars"] = dollars.mean()
+        result["total_pnl_dollars"] = dollars.sum()
+
+    return result
 
 
 def interactive_log():
