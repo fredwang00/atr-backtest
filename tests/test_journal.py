@@ -91,6 +91,37 @@ def test_close_short_trade():
             os.remove(test_path)
 
 
+def test_add_credit_spread_entry():
+    """Adding a credit spread entry stores all spread-specific fields."""
+    test_path = "test_journal_tmp.csv"
+    try:
+        entry = {
+            "date": "2026-03-16", "ticker": "SPY", "direction": "short",
+            "trade_type": "credit_spread", "spread_type": "call",
+            "short_strike": 672, "long_strike": 674,
+            "spread_width": 2.0, "contracts": 10, "credit": 0.087,
+            "entry_price": 0.087,
+            "size": 1913.0,
+            "regime": "BEARISH", "breadth_trend": "DETERIORATING_FAST",
+            "notes": "0DTE, SPY ~669 at entry",
+        }
+        add_entry(entry, test_path)
+        df = load_journal(test_path)
+        assert len(df) == 1
+        assert df.iloc[0]["trade_type"] == "credit_spread"
+        assert df.iloc[0]["spread_type"] == "call"
+        assert df.iloc[0]["short_strike"] == 672
+        assert df.iloc[0]["long_strike"] == 674
+        assert df.iloc[0]["spread_width"] == 2.0
+        assert df.iloc[0]["contracts"] == 10
+        assert df.iloc[0]["credit"] == 0.087
+        assert pd.isna(df.iloc[0]["exit_date"])
+        assert pd.isna(df.iloc[0]["pnl_dollars"])
+    finally:
+        if os.path.exists(test_path):
+            os.remove(test_path)
+
+
 def test_compute_review_stats():
     """Review stats compute correctly from journal data."""
     test_path = "test_journal_tmp.csv"

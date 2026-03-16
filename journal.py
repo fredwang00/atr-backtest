@@ -15,7 +15,10 @@ JOURNAL_COLUMNS = [
     "date", "ticker", "direction", "entry_price", "size", "size_mult",
     "trigger_level", "mid_target", "full_target", "stop_level",
     "regime", "breadth_trend", "exit_date", "exit_price", "exit_reason",
-    "pnl_pct", "notes",
+    "pnl_pct", "pnl_dollars",
+    "trade_type", "spread_type", "short_strike", "long_strike",
+    "spread_width", "contracts", "credit",
+    "notes",
 ]
 
 BACKTEST_WR = 86.8
@@ -39,6 +42,7 @@ def add_entry(entry_dict, path=JOURNAL_PATH):
     row["exit_price"] = ""
     row["exit_reason"] = ""
     row["pnl_pct"] = ""
+    row["pnl_dollars"] = ""
     new_df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
     new_df.to_csv(path, index=False)
 
