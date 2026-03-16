@@ -1,5 +1,5 @@
 """
-Trade journal for ATR swing pilot trades.
+Trade journal for ATR swing and credit spread pilot trades.
 
 Usage:
     python journal.py log      # log a new entry or close a trade
@@ -149,15 +149,33 @@ def interactive_log():
     if choice == "2":
         print(f"\n  Open trades:")
         for i, (idx, row) in enumerate(open_trades.iterrows()):
-            print(f"    {i+1}. [{idx}] {row['date']} {row['ticker']} {row['direction']} "
-                  f"@ ${row['entry_price']}")
+            tt = str(row.get("trade_type", "")).strip()
+            if tt == "credit_spread":
+                side = "C" if row.get("spread_type") == "call" else "P"
+                print(f"    {i+1}. [{idx}] {row['date']} {row['ticker']} "
+                      f"{row['short_strike']}/{row['long_strike']}{side} "
+                      f"x{int(float(row['contracts']))} @ ${row['credit']} credit")
+            else:
+                print(f"    {i+1}. [{idx}] {row['date']} {row['ticker']} {row['direction']} "
+                      f"@ ${row['entry_price']}")
 
         pick = int(input("  Close which trade? [number]: ").strip()) - 1
         trade_idx = open_trades.index[pick]
+        picked_row = open_trades.iloc[pick]
+        is_cs = str(picked_row.get("trade_type", "")).strip() == "credit_spread"
 
-        exit_price = float(input("  Exit price: $").strip())
-        print("  Exit reason: target_full / stop / time / discretionary")
-        exit_reason = input("  Reason: ").strip()
+        if is_cs:
+            print("  Exit reason: expired_otm / closed / stop / rolled")
+            exit_reason = input("  Reason: ").strip()
+            if exit_reason == "expired_otm":
+                exit_price = 0.0
+            else:
+                exit_price = float(input("  Debit paid per spread: $").strip())
+        else:
+            exit_price = float(input("  Exit price: $").strip())
+            print("  Exit reason: target_full / stop / time / discretionary")
+            exit_reason = input("  Reason: ").strip()
+
         exit_date = input("  Exit date [YYYY-MM-DD, blank=today]: ").strip()
         if not exit_date:
             exit_date = pd.Timestamp.now().strftime("%Y-%m-%d")
@@ -166,85 +184,149 @@ def interactive_log():
         close_trade(trade_idx, exit_price, exit_date, exit_reason, notes)
         print(f"\n  Trade closed.")
     else:
-        ticker = input("  Ticker: ").strip().upper()
-        direction = input("  Direction [long/short]: ").strip().lower()
-        entry_price = float(input("  Entry price: $").strip())
-        size = float(input("  Position size ($): ").strip())
-        notes = input("  Notes (optional): ").strip()
+        print("\n  Trade type?")
+        print("  (1) Swing")
+        print("  (2) Credit spread")
+        tt_choice = input("  Type [1/2]: ").strip()
 
-        # Pre-fill levels from current data
+        # Fetch breadth data once (used by both paths)
         try:
-            from atr_swing_backtest import prepare_data
             from breadth import load_breadth_data
-
-            result = prepare_data(ticker)
-            if result:
-                df, _ = result
-                row = df.iloc[-1]
-                trigger = float(row["Long_Trigger"] if direction == "long" else row["Short_Trigger"])
-                mid = float(row["Mid_Long"] if direction == "long" else row["Mid_Short"])
-                full = float(row["Full_Long"] if direction == "long" else row["Full_Short"])
-                stop = float(row["Central_Pivot"])
-            else:
-                trigger = mid = full = stop = 0.0
-
             breadth_df = load_breadth_data("breadth_data")
             brow = breadth_df.iloc[-1]
             regime = brow["regime"]
             breadth_trend = brow["breadth_trend"]
-            size_mult = 0.5 if breadth_trend in {"DETERIORATING", "DETERIORATING_FAST"} else 1.0
         except Exception as e:
-            print(f"  [warning] Could not fetch market data: {e}")
-            trigger = mid = full = stop = 0.0
+            print(f"  [warning] Could not fetch breadth data: {e}")
             regime = "UNKNOWN"
             breadth_trend = "UNKNOWN"
-            size_mult = 1.0
 
-        entry = {
-            "date": pd.Timestamp.now().strftime("%Y-%m-%d"),
-            "ticker": ticker, "direction": direction,
-            "entry_price": entry_price, "size": size, "size_mult": size_mult,
-            "trigger_level": trigger, "mid_target": mid,
-            "full_target": full, "stop_level": stop,
-            "regime": regime, "breadth_trend": breadth_trend,
-            "notes": notes,
-        }
-        add_entry(entry)
-        print(f"\n  Entry logged: {ticker} {direction} @ ${entry_price}")
-        print(f"  Regime: {regime} | Trend: {breadth_trend} | Size mult: {size_mult}")
+        if tt_choice == "2":
+            ticker = input("  Ticker: ").strip().upper()
+            spread_type = input("  Spread type [call/put]: ").strip().lower()
+            short_strike = float(input("  Short strike: ").strip())
+            long_strike = float(input("  Long strike: ").strip())
+            contracts = int(input("  Contracts: ").strip())
+            credit = float(input("  Net credit per spread (after commissions): $").strip())
+            notes = input("  Notes (optional): ").strip()
+
+            spread_width = abs(long_strike - short_strike)
+            max_risk = (spread_width - credit) * contracts * 100
+
+            entry = {
+                "date": pd.Timestamp.now().strftime("%Y-%m-%d"),
+                "ticker": ticker, "direction": "short",
+                "trade_type": "credit_spread", "spread_type": spread_type,
+                "short_strike": short_strike, "long_strike": long_strike,
+                "spread_width": spread_width, "contracts": contracts,
+                "credit": credit, "entry_price": credit,
+                "size": max_risk, "size_mult": 1.0,
+                "regime": regime, "breadth_trend": breadth_trend,
+                "notes": notes,
+            }
+            add_entry(entry)
+            side = "C" if spread_type == "call" else "P"
+            print(f"\n  Logged: {ticker} {short_strike}/{long_strike}{side} x{contracts} "
+                  f"@ ${credit} credit (max risk: ${max_risk:.0f})")
+            print(f"  Regime: {regime} | Trend: {breadth_trend}")
+        else:
+            # Existing swing flow
+            ticker = input("  Ticker: ").strip().upper()
+            direction = input("  Direction [long/short]: ").strip().lower()
+            entry_price = float(input("  Entry price: $").strip())
+            size = float(input("  Position size ($): ").strip())
+            notes = input("  Notes (optional): ").strip()
+
+            try:
+                from atr_swing_backtest import prepare_data
+                result = prepare_data(ticker)
+                if result:
+                    df, _ = result
+                    row = df.iloc[-1]
+                    trigger = float(row["Long_Trigger"] if direction == "long" else row["Short_Trigger"])
+                    mid = float(row["Mid_Long"] if direction == "long" else row["Mid_Short"])
+                    full = float(row["Full_Long"] if direction == "long" else row["Full_Short"])
+                    stop = float(row["Central_Pivot"])
+                else:
+                    trigger = mid = full = stop = 0.0
+            except Exception as e:
+                print(f"  [warning] Could not fetch price data: {e}")
+                trigger = mid = full = stop = 0.0
+
+            size_mult = 0.5 if breadth_trend in {"DETERIORATING", "DETERIORATING_FAST"} else 1.0
+
+            entry = {
+                "date": pd.Timestamp.now().strftime("%Y-%m-%d"),
+                "ticker": ticker, "direction": direction,
+                "trade_type": "swing",
+                "entry_price": entry_price, "size": size, "size_mult": size_mult,
+                "trigger_level": trigger, "mid_target": mid,
+                "full_target": full, "stop_level": stop,
+                "regime": regime, "breadth_trend": breadth_trend,
+                "notes": notes,
+            }
+            add_entry(entry)
+            print(f"\n  Entry logged: {ticker} {direction} @ ${entry_price}")
+            print(f"  Regime: {regime} | Trend: {breadth_trend} | Size mult: {size_mult}")
 
 
 def print_review():
-    """Print journal review stats."""
-    stats = compute_review_stats()
+    """Print journal review stats, split by trade type."""
     open_trades = get_open_trades()
 
     print(f"\n{'='*60}")
     print(f"  TRADE JOURNAL REVIEW")
     print(f"{'='*60}")
 
-    if stats["total"] == 0:
+    swing_stats = compute_review_stats(trade_type="swing")
+    cs_stats = compute_review_stats(trade_type="credit_spread")
+    has_any = swing_stats["total"] > 0 or cs_stats["total"] > 0
+
+    if not has_any:
         print("  No closed trades yet.")
     else:
-        print(f"  Closed trades:    {stats['total']}")
-        print(f"  Win rate:         {stats['win_rate']:.1f}%")
-        print(f"  Avg P&L:          {stats['avg_pnl']:+.2f}%")
-        pf_str = f"{stats['profit_factor']:.2f}" if stats['profit_factor'] != float('inf') else "inf"
-        print(f"  Profit factor:    {pf_str}")
-        print(f"\n  Backtest expects: {BACKTEST_WR}% WR, +{BACKTEST_AVG_PNL:.2f}% avg")
+        if swing_stats["total"] > 0:
+            print(f"\n  SWING TRADES")
+            print(f"  {'-'*56}")
+            print(f"  Closed trades:    {swing_stats['total']}")
+            print(f"  Win rate:         {swing_stats['win_rate']:.1f}%")
+            print(f"  Avg P&L:          {swing_stats['avg_pnl']:+.2f}%")
+            pf_str = f"{swing_stats['profit_factor']:.2f}" if swing_stats['profit_factor'] != float('inf') else "inf"
+            print(f"  Profit factor:    {pf_str}")
+            print(f"\n  Backtest expects: {BACKTEST_WR}% WR, +{BACKTEST_AVG_PNL:.2f}% avg")
+            if swing_stats["total"] < 20:
+                print(f"  [!] {swing_stats['total']} trades — too few to draw conclusions")
 
-        if stats["total"] < 20:
-            print(f"  [!] {stats['total']} trades — too few to draw conclusions")
+        if cs_stats["total"] > 0:
+            print(f"\n  CREDIT SPREADS")
+            print(f"  {'-'*56}")
+            print(f"  Closed trades:    {cs_stats['total']}")
+            print(f"  Win rate:         {cs_stats['win_rate']:.1f}%")
+            print(f"  Avg P&L ($):      ${cs_stats.get('avg_pnl_dollars', 0):+.2f}/trade")
+            print(f"  Avg RoR:          {cs_stats['avg_pnl']:+.2f}%/trade")
+            print(f"  Total P&L:        ${cs_stats.get('total_pnl_dollars', 0):+.2f}")
+            pf_str = f"{cs_stats['profit_factor']:.2f}" if cs_stats['profit_factor'] != float('inf') else "inf"
+            print(f"  Profit factor:    {pf_str}")
+            if cs_stats["total"] < 20:
+                print(f"  [!] {cs_stats['total']} trades — too few to draw conclusions")
 
-        if stats.get("regimes"):
-            print(f"\n  Regime distribution:")
-            for regime, count in sorted(stats["regimes"].items(), key=lambda x: -x[1]):
+        # Regime distribution across all trades
+        all_stats = compute_review_stats()
+        if all_stats.get("regimes"):
+            print(f"\n  Regime distribution (all trades):")
+            for regime, count in sorted(all_stats["regimes"].items(), key=lambda x: -x[1]):
                 print(f"    {regime:>20s}: {count}")
 
     if len(open_trades) > 0:
         print(f"\n  Open trades ({len(open_trades)}):")
         for _, row in open_trades.iterrows():
-            print(f"    {row['date']} {row['ticker']} {row['direction']} @ ${row['entry_price']}")
+            tt = str(row.get("trade_type", "")).strip()
+            if tt == "credit_spread":
+                side = "C" if row.get("spread_type") == "call" else "P"
+                print(f"    {row['date']} {row['ticker']} {row['short_strike']}/{row['long_strike']}{side} "
+                      f"x{int(float(row['contracts']))} @ ${row['credit']} credit")
+            else:
+                print(f"    {row['date']} {row['ticker']} {row['direction']} @ ${row['entry_price']}")
 
     print()
 
