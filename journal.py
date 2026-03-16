@@ -48,21 +48,34 @@ def add_entry(entry_dict, path=JOURNAL_PATH):
 
 
 def close_trade(trade_idx, exit_price, exit_date, exit_reason, notes="", path=JOURNAL_PATH):
-    """Close an open trade by filling exit fields and computing pnl_pct."""
+    """Close an open trade by filling exit fields and computing P&L."""
     df = load_journal(path)
-    entry_price = float(df.loc[trade_idx, "entry_price"])
-    direction = df.loc[trade_idx, "direction"]
+    row = df.loc[trade_idx]
+    trade_type = str(row.get("trade_type", "")).strip()
 
-    if direction == "long":
-        pnl_pct = (exit_price - entry_price) / entry_price * 100
+    if trade_type == "credit_spread":
+        credit = float(row["credit"])
+        spread_width = float(row["spread_width"])
+        contracts = int(float(row["contracts"]))
+        max_risk = (spread_width - credit) * contracts * 100
+        pnl_dollars = (credit - exit_price) * contracts * 100
+        pnl_pct = (pnl_dollars / max_risk * 100) if max_risk > 0 else 0.0
     else:
-        pnl_pct = (entry_price - exit_price) / entry_price * 100
+        entry_price = float(row["entry_price"])
+        direction = row["direction"]
+        if direction == "long":
+            pnl_pct = (exit_price - entry_price) / entry_price * 100
+        else:
+            pnl_pct = (entry_price - exit_price) / entry_price * 100
+        size = float(row["size"]) if row.get("size") and str(row["size"]).strip() else 0
+        pnl_dollars = pnl_pct / 100 * size
 
     df = df.astype(object)
     df.at[trade_idx, "exit_date"] = exit_date
     df.at[trade_idx, "exit_price"] = exit_price
     df.at[trade_idx, "exit_reason"] = exit_reason
     df.at[trade_idx, "pnl_pct"] = round(pnl_pct, 4)
+    df.at[trade_idx, "pnl_dollars"] = round(pnl_dollars, 2)
     if notes:
         existing = str(df.at[trade_idx, "notes"])
         df.at[trade_idx, "notes"] = f"{existing}; {notes}" if existing and existing != "nan" else notes

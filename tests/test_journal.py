@@ -63,6 +63,10 @@ def test_close_trade():
         assert df.iloc[0]["exit_price"] == 105.0
         assert df.iloc[0]["exit_reason"] == "target_full"
         assert abs(df.iloc[0]["pnl_pct"] - 5.0) < 0.01
+        # pnl_dollars should be computed for swing trades too
+        assert "pnl_dollars" in df.columns
+        pnl_dollars = float(df.iloc[0]["pnl_dollars"])
+        assert abs(pnl_dollars - 50.0) < 0.01  # 5% of $1000 size
     finally:
         if os.path.exists(test_path):
             os.remove(test_path)
@@ -117,6 +121,60 @@ def test_add_credit_spread_entry():
         assert df.iloc[0]["credit"] == 0.087
         assert pd.isna(df.iloc[0]["exit_date"])
         assert pd.isna(df.iloc[0]["pnl_dollars"])
+    finally:
+        if os.path.exists(test_path):
+            os.remove(test_path)
+
+
+def test_close_credit_spread_expired_otm():
+    """Credit spread expired OTM: full credit kept, pnl_dollars and pnl_pct correct."""
+    test_path = "test_journal_tmp.csv"
+    try:
+        entry = {
+            "date": "2026-03-16", "ticker": "SPY", "direction": "short",
+            "trade_type": "credit_spread", "spread_type": "call",
+            "short_strike": 672, "long_strike": 674,
+            "spread_width": 2.0, "contracts": 10, "credit": 0.087,
+            "entry_price": 0.087, "size": 1913.0,
+            "regime": "BEARISH", "breadth_trend": "DETERIORATING_FAST",
+            "notes": "",
+        }
+        add_entry(entry, test_path)
+        close_trade(0, exit_price=0.0, exit_date="2026-03-16",
+                    exit_reason="expired_otm", path=test_path)
+        df = load_journal(test_path)
+        assert df.iloc[0]["exit_price"] == 0.0
+        assert df.iloc[0]["exit_reason"] == "expired_otm"
+        # pnl_dollars = (0.087 - 0) * 10 * 100 = $87
+        assert abs(float(df.iloc[0]["pnl_dollars"]) - 87.0) < 0.01
+        # pnl_pct = 87 / (1.913 * 10 * 100) * 100 = 4.548%
+        assert abs(float(df.iloc[0]["pnl_pct"]) - 4.548) < 0.1
+    finally:
+        if os.path.exists(test_path):
+            os.remove(test_path)
+
+
+def test_close_credit_spread_loss():
+    """Credit spread closed at a loss: debit > credit."""
+    test_path = "test_journal_tmp.csv"
+    try:
+        entry = {
+            "date": "2026-03-16", "ticker": "SPY", "direction": "short",
+            "trade_type": "credit_spread", "spread_type": "put",
+            "short_strike": 660, "long_strike": 655,
+            "spread_width": 5.0, "contracts": 5, "credit": 0.50,
+            "entry_price": 0.50, "size": 2250.0,
+            "regime": "BEARISH", "breadth_trend": "DETERIORATING_FAST",
+            "notes": "",
+        }
+        add_entry(entry, test_path)
+        close_trade(0, exit_price=3.0, exit_date="2026-03-16",
+                    exit_reason="stop", path=test_path)
+        df = load_journal(test_path)
+        # pnl_dollars = (0.50 - 3.0) * 5 * 100 = -$1250
+        assert abs(float(df.iloc[0]["pnl_dollars"]) - (-1250.0)) < 0.01
+        # pnl_pct = -1250 / ((5.0 - 0.50) * 5 * 100) * 100 = -55.56%
+        assert abs(float(df.iloc[0]["pnl_pct"]) - (-55.56)) < 0.1
     finally:
         if os.path.exists(test_path):
             os.remove(test_path)
