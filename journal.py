@@ -149,6 +149,25 @@ def compute_review_stats(path=JOURNAL_PATH, trade_type=None):
     else:
         result["grade_stats"] = {}
 
+    # Compliance breakdown
+    compliance_stats = {}
+    if "compliance" in closed.columns:
+        comp = closed["compliance"].fillna("").replace("", "unknown")
+        for label in ["compliant", "violation", "unknown"]:
+            if label == "violation":
+                grp = closed[~comp.isin(["compliant", "unknown", ""])]
+            else:
+                grp = closed[comp == label]
+            if len(grp) > 0:
+                grp_pnls = grp["pnl_pct"].astype(float)
+                grp_winners = grp_pnls[grp_pnls > 0]
+                compliance_stats[label] = {
+                    "total": len(grp),
+                    "win_rate": len(grp_winners) / len(grp) * 100 if len(grp) > 0 else 0,
+                    "avg_pnl": grp_pnls.mean(),
+                }
+    result["compliance_stats"] = compliance_stats
+
     return result
 
 
@@ -384,6 +403,25 @@ def print_review():
                     print(f"    {grade}: {gs['total']} trades, "
                           f"{gs['win_rate']:.0f}% WR, "
                           f"{gs['avg_pnl']:+.2f}% avg")
+
+        # Compliance breakdown
+        compliance_stats = all_stats.get("compliance_stats", {})
+        compliant = compliance_stats.get("compliant", {})
+        violation = compliance_stats.get("violation", {})
+        if compliant or violation:
+            total_scored = compliant.get("total", 0) + violation.get("total", 0)
+            print(f"\n  Compliance:")
+            if compliant:
+                print(f"    Compliant:   {compliant['total']} trades, "
+                      f"{compliant['win_rate']:.0f}% WR, "
+                      f"{compliant['avg_pnl']:+.2f}% avg")
+            if violation:
+                print(f"    Violations:  {violation['total']} trades, "
+                      f"{violation['win_rate']:.0f}% WR, "
+                      f"{violation['avg_pnl']:+.2f}% avg")
+            if total_scored > 0:
+                rate = compliant.get("total", 0) / total_scored * 100
+                print(f"    Compliance rate: {rate:.0f}%")
 
     if len(open_trades) > 0:
         print(f"\n  Open trades ({len(open_trades)}):")

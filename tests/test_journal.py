@@ -393,6 +393,68 @@ def test_add_entry_with_violations():
             os.remove(test_path)
 
 
+def test_review_stats_compliance_breakdown():
+    """Review stats include compliance breakdown."""
+    test_path = "test_journal_tmp.csv"
+    try:
+        # Compliant winner
+        add_entry({
+            "date": "2026-03-18", "ticker": "SPX", "direction": "short",
+            "trade_type": "credit_spread", "spread_type": "call",
+            "short_strike": 6800, "long_strike": 6820,
+            "spread_width": 20.0, "contracts": 5, "credit": 0.30,
+            "entry_price": 0.30, "size": 9850.0,
+            "regime": "CAUTIOUS", "breadth_trend": "SLIGHTLY_DETERIORATING",
+            "compliance": "compliant", "notes": "",
+        }, test_path)
+        close_trade(0, exit_price=0.0, exit_date="2026-03-18",
+                    exit_reason="expired_otm", path=test_path)
+
+        # Violation loser
+        add_entry({
+            "date": "2026-03-18", "ticker": "SPX", "direction": "short",
+            "trade_type": "credit_spread", "spread_type": "put",
+            "short_strike": 6625, "long_strike": 6605,
+            "spread_width": 20.0, "contracts": 10, "credit": 1.35,
+            "entry_price": 1.35, "size": 18650.0,
+            "regime": "CAUTIOUS", "breadth_trend": "SLIGHTLY_DETERIORATING",
+            "compliance": "wrong_structure; oversized", "notes": "",
+        }, test_path)
+        close_trade(1, exit_price=5.0, exit_date="2026-03-18",
+                    exit_reason="stop", path=test_path)
+
+        stats = compute_review_stats(test_path, trade_type="credit_spread")
+        assert "compliance_stats" in stats
+        assert stats["compliance_stats"]["compliant"]["total"] == 1
+        assert stats["compliance_stats"]["compliant"]["win_rate"] == 100.0
+        assert stats["compliance_stats"]["violation"]["total"] == 1
+        assert stats["compliance_stats"]["violation"]["win_rate"] == 0.0
+    finally:
+        if os.path.exists(test_path):
+            os.remove(test_path)
+
+
+def test_review_stats_missing_compliance_treated_as_unknown():
+    """Trades without compliance column are 'unknown', not compliant or violation."""
+    test_path = "test_journal_tmp.csv"
+    try:
+        add_entry({
+            "date": "2026-03-15", "ticker": "SPY", "direction": "long",
+            "entry_price": 100.0, "size": 1000,
+            "regime": "NEUTRAL", "breadth_trend": "STEADY", "notes": "",
+        }, test_path)
+        close_trade(0, exit_price=105.0, exit_date="2026-03-18",
+                    exit_reason="target_full", path=test_path)
+
+        stats = compute_review_stats(test_path)
+        cs = stats.get("compliance_stats", {})
+        assert cs.get("compliant", {}).get("total", 0) == 0
+        assert cs.get("violation", {}).get("total", 0) == 0
+    finally:
+        if os.path.exists(test_path):
+            os.remove(test_path)
+
+
 def test_review_stats_by_setup_grade():
     """Review stats include win rate broken down by setup grade."""
     test_path = "test_journal_tmp.csv"
