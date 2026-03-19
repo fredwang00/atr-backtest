@@ -19,15 +19,20 @@ A single source of truth for regime-based trade rules, imported by both `scanner
 - `label`: human-readable sizing string for display
 - `notes`: regime-specific guidance from the decision matrix
 
+**Regimes covered:** All seven possible values from `breadth.py` and `scanner.py`: `EXTREME_BULLISH`, `BULLISH`, `NEUTRAL`, `CAUTIOUS`, `BEARISH`, `EXTREME_BEARISH`, `UNKNOWN`. The `UNKNOWN` regime uses the same rules as `CAUTIOUS` (conservative default — call spreads only, 0.5x).
+
 **Constants:**
 - `BASE_CONTRACTS = 10` — default base position size
 
-**Function:** `check_compliance(regime, spread_type=None, contracts=None, base_contracts=None)`
+**Value mapping:** The journal stores `spread_type` as `"call"` or `"put"`. The `check_compliance` function accepts these journal values directly and maps them internally: `"call"` → `"call_credit"`, `"put"` → `"put_credit"`. Callers never need to know about the `allowed_structures` naming.
+
+**Function:** `check_compliance(regime, spread_type=None, contracts=None, base_contracts=BASE_CONTRACTS)`
+- `base_contracts` defaults to `BASE_CONTRACTS` (10). Callers don't need to pass it unless overriding.
 - Returns a list of violation strings. Empty list = compliant.
 - Checks:
   1. Whether `spread_type` is in the regime's allowed structures
   2. Whether `contracts` exceeds `base_contracts * sizing` multiplier
-  3. Iron condor detection is deferred — requires checking open trades for same-day opposing spreads, which is a journal-level concern
+  3. Iron condor detection is out of scope for v1 — requires checking open trades for same-day opposing spreads, which is a journal-level concern. `"iron_condor"` appears in `allowed_structures` for documentation but is not validated
 
 ### Scanner Pre-Trade Checklist
 
@@ -37,7 +42,7 @@ Appended to the breadth dashboard output after the sizing line. Prints:
 - Concrete sizing guidance (e.g., "0.5x base → 5 contracts if base is 10")
 - Regime-specific notes from the decision matrix
 
-The existing `REGIME_SIZING` dict in `scanner.py` is replaced by importing `REGIME_RULES[regime]["label"]` from `compliance.py`.
+The existing `REGIME_SIZING` dict in `scanner.py` is replaced by importing `REGIME_RULES` from `compliance.py`. Sizing display uses `REGIME_RULES.get(regime, REGIME_RULES["UNKNOWN"])["label"]`, which handles any unexpected regime value safely.
 
 ### Journal Compliance at Entry Time
 
@@ -53,6 +58,8 @@ A new `compliance` column is added to `JOURNAL_COLUMNS`.
 ### Review Stats Compliance Breakdown
 
 In `print_review`, after the grade breakdown, add a compliance section splitting closed trades by compliant vs violation — showing trade count, win rate, and avg P&L for each group, plus overall compliance rate.
+
+Existing trades without a `compliance` column value are treated as `"unknown"` — not counted as compliant or violation. This avoids misrepresenting historical trades that predate the compliance feature.
 
 ## Files Changed
 
