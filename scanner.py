@@ -4,19 +4,54 @@ Daily scanner: checks ATR swing trade setups after market close.
 
 Usage:
     python scanner.py              # today's scan
+    python scanner.py --fetch      # pull latest breadth CSV, then scan
     python scanner.py --date 2024-03-15  # historical replay
 """
 
 import argparse
 import pandas as pd
 import os
+import urllib.request
 
 from atr_swing_backtest import TICKERS, prepare_data, check_entry_conditions
 from breadth import load_breadth_data
+from compliance import REGIME_RULES, BASE_CONTRACTS
+
+# Google Sheets export URLs for Pradeep's market monitor data.
+# Key: year, Value: gviz CSV export URL.
+# The spreadsheet ID below is the same workbook; each year is a separate sheet.
+BREADTH_SHEETS = {
+    2026: "https://docs.google.com/spreadsheets/d/0Am_cU8NLIU20dEhiQnVHN3Nnc3B1S3J6eGhKZFo0N3c/gviz/tq?tqx=out:csv",
+}
+BREADTH_DIR = "breadth_data"
+
+
+def fetch_breadth(years=None):
+    """Download latest breadth CSVs from Google Sheets.
+
+    Args:
+        years: List of years to fetch, or None for all configured years.
+    """
+    os.makedirs(BREADTH_DIR, exist_ok=True)
+    targets = years or list(BREADTH_SHEETS.keys())
+    for year in targets:
+        url = BREADTH_SHEETS.get(year)
+        if url is None:
+            print(f"  No URL configured for {year}, skipping")
+            continue
+        dest = os.path.join(BREADTH_DIR, f"mm_{year}.csv")
+        print(f"  Fetching {year} breadth data...")
+        try:
+            urllib.request.urlretrieve(url, dest)
+            # Quick sanity check
+            df = pd.read_csv(dest)
+            print(f"  Saved {dest} ({len(df)} rows, latest: {df.iloc[0, 0]})")
+        except Exception as e:
+            print(f"  ERROR fetching {year}: {e}")
+
 
 LONG_CONDS = ["squeeze", "momentum_long", "ema_bull", "long_crossover", "volume", "above_macro"]
 SHORT_CONDS = ["squeeze", "momentum_short", "ema_bear", "short_crossover", "volume", "below_macro"]
-HALF_SIZE_TRENDS = {"DETERIORATING", "DETERIORATING_FAST"}
 EARNINGS_CACHE_DIR = os.path.join("breadth_data", "earnings_cache")
 
 
@@ -108,7 +143,8 @@ def print_scan(results, breadth_df, scan_date):
         r10 = 0
         bias = "unknown"
 
-    sizing = "HALF SIZE" if trend in HALF_SIZE_TRENDS else "FULL SIZE"
+    rules = REGIME_RULES.get(regime, REGIME_RULES["UNKNOWN"])
+    sizing = rules["label"]
 
     print(f"\n{'='*70}")
     print(f"  ATR SWING SCANNER — {scan_ts.strftime('%Y-%m-%d')}")
@@ -180,6 +216,26 @@ def print_scan(results, breadth_df, scan_date):
     print(f"  Health:      {score:+d} ({trend})")
     print(f"  Ratio10:     {r10:.2f} ({bias})")
     print(f"  Sizing:      {sizing}")
+
+    # Pre-trade checklist
+    all_structures = {"call_credit": "Call credit spread", "put_credit": "Put credit spread",
+                      "iron_condor": "Iron condor"}
+    allowed = rules["allowed_structures"]
+    blocked = [v for k, v in all_structures.items() if k not in allowed]
+    allowed_names = [all_structures[s] for s in allowed if s in all_structures]
+    max_contracts = int(BASE_CONTRACTS * rules["sizing"])
+
+    print(f"\n  PRE-TRADE CHECKLIST")
+    print(f"  {'-'*66}")
+    if allowed_names:
+        for name in allowed_names:
+            print(f"    Allowed:    {name}")
+    else:
+        print(f"    Allowed:    None (no premium selling)")
+    if blocked:
+        print(f"    Blocked:    {', '.join(blocked)}")
+    print(f"    Max size:   {rules['sizing']}x base -> {max_contracts} contracts")
+    print(f"    Note:       {rules['notes']}")
     print()
 
 
@@ -187,7 +243,13 @@ def main():
     parser = argparse.ArgumentParser(description="ATR Swing Scanner")
     parser.add_argument("--date", type=str, default=None,
                         help="Scan date (YYYY-MM-DD). Defaults to most recent trading day.")
+    parser.add_argument("--fetch", action="store_true",
+                        help="Pull latest breadth CSV from Google Sheets before scanning.")
     args = parser.parse_args()
+
+    if args.fetch:
+        print("Fetching breadth data...")
+        fetch_breadth()
 
     print("Loading breadth data...")
     breadth_df = load_breadth_data("breadth_data")
