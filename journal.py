@@ -11,10 +11,12 @@ import os
 import pandas as pd
 
 JOURNAL_PATH = "trades_journal.csv"
+VALID_SETUP_GRADES = ["A", "B", "C", "D"]
 JOURNAL_COLUMNS = [
     "date", "ticker", "direction", "entry_price", "size", "size_mult",
     "trigger_level", "mid_target", "full_target", "stop_level",
-    "regime", "breadth_trend", "exit_date", "exit_price", "exit_reason",
+    "regime", "breadth_trend", "setup_grade", "compliance",
+    "exit_date", "exit_price", "exit_reason",
     "pnl_pct", "pnl_dollars",
     "trade_type", "spread_type", "short_strike", "long_strike",
     "spread_width", "contracts", "credit",
@@ -67,7 +69,7 @@ def close_trade(trade_idx, exit_price, exit_date, exit_reason, notes="", path=JO
             pnl_pct = (exit_price - entry_price) / entry_price * 100
         else:
             pnl_pct = (entry_price - exit_price) / entry_price * 100
-        size = float(row["size"]) if row.get("size") and str(row["size"]).strip() else 0
+        size = float(row["size"]) if pd.notna(row.get("size")) and str(row["size"]).strip() else 0
         pnl_dollars = pnl_pct / 100 * size
 
     df = df.astype(object)
@@ -130,7 +132,34 @@ def compute_review_stats(path=JOURNAL_PATH, trade_type=None):
         result["avg_pnl_dollars"] = dollars.mean()
         result["total_pnl_dollars"] = dollars.sum()
 
+    # Grade breakdown
+    if "setup_grade" in closed.columns:
+        grades = closed["setup_grade"].fillna("").replace("", pd.NA).dropna()
+        grade_stats = {}
+        for grade in grades.unique():
+            grp = closed[closed["setup_grade"] == grade]
+            grp_pnls = grp["pnl_pct"].astype(float)
+            grp_winners = grp_pnls[grp_pnls > 0]
+            grade_stats[grade] = {
+                "total": len(grp),
+                "win_rate": len(grp_winners) / len(grp) * 100 if len(grp) > 0 else 0,
+                "avg_pnl": grp_pnls.mean(),
+            }
+        result["grade_stats"] = grade_stats
+    else:
+        result["grade_stats"] = {}
+
     return result
+
+
+def _prompt_setup_grade():
+    """Prompt for setup quality grade (A-D)."""
+    print("  Setup grade: A=textbook  B=minor deviation  C=marginal  D=forced")
+    while True:
+        grade = input("  Grade [A/B/C/D]: ").strip().upper()
+        if grade in VALID_SETUP_GRADES:
+            return grade
+        print(f"  Invalid grade '{grade}'. Enter A, B, C, or D.")
 
 
 def interactive_log():
@@ -208,9 +237,33 @@ def interactive_log():
             long_strike = float(input("  Long strike: ").strip())
             contracts = int(input("  Contracts: ").strip())
             credit = float(input("  Net credit per spread (after commissions): $").strip())
-            notes = input("  Notes (optional): ").strip()
 
             spread_width = abs(long_strike - short_strike)
+            if credit >= spread_width:
+                print(f"\n  ERROR: Credit ${credit} >= spread width ${spread_width}.")
+                print(f"  Enter the per-share option price (e.g., $0.087), not total dollars.")
+                return
+
+            setup_grade = _prompt_setup_grade()
+
+            from compliance import check_compliance
+            violations = check_compliance(regime, spread_type=spread_type, contracts=contracts)
+            if violations:
+                print()
+                for v in violations:
+                    print(f"  ⚠ REGIME VIOLATION: {v}")
+                confirm = input("\n  Log anyway? [y/N]: ").strip().lower()
+                if confirm != "y":
+                    print("  Trade not logged.")
+                    return
+                compliance_str = "; ".join(
+                    "wrong_structure" if "structure" in v.lower() else "oversized"
+                    for v in violations
+                )
+            else:
+                compliance_str = "compliant"
+
+            notes = input("  Notes (optional): ").strip()
             max_risk = (spread_width - credit) * contracts * 100
 
             entry = {
@@ -222,6 +275,8 @@ def interactive_log():
                 "credit": credit, "entry_price": credit,
                 "size": max_risk, "size_mult": 1.0,
                 "regime": regime, "breadth_trend": breadth_trend,
+                "setup_grade": setup_grade,
+                "compliance": compliance_str,
                 "notes": notes,
             }
             add_entry(entry)
@@ -253,6 +308,7 @@ def interactive_log():
                 print(f"  [warning] Could not fetch price data: {e}")
                 trigger = mid = full = stop = 0.0
 
+            setup_grade = _prompt_setup_grade()
             size_mult = 0.5 if breadth_trend in {"DETERIORATING", "DETERIORATING_FAST"} else 1.0
 
             entry = {
@@ -263,6 +319,7 @@ def interactive_log():
                 "trigger_level": trigger, "mid_target": mid,
                 "full_target": full, "stop_level": stop,
                 "regime": regime, "breadth_trend": breadth_trend,
+                "setup_grade": setup_grade,
                 "notes": notes,
             }
             add_entry(entry)
@@ -316,6 +373,17 @@ def print_review():
             print(f"\n  Regime distribution (all trades):")
             for regime, count in sorted(all_stats["regimes"].items(), key=lambda x: -x[1]):
                 print(f"    {regime:>20s}: {count}")
+
+        # Setup grade breakdown
+        grade_stats = all_stats.get("grade_stats", {})
+        if grade_stats:
+            print(f"\n  Setup grade breakdown (all trades):")
+            for grade in VALID_SETUP_GRADES:
+                if grade in grade_stats:
+                    gs = grade_stats[grade]
+                    print(f"    {grade}: {gs['total']} trades, "
+                          f"{gs['win_rate']:.0f}% WR, "
+                          f"{gs['avg_pnl']:+.2f}% avg")
 
     if len(open_trades) > 0:
         print(f"\n  Open trades ({len(open_trades)}):")

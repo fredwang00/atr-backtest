@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 from journal import (
-    JOURNAL_PATH, JOURNAL_COLUMNS, load_journal,
+    JOURNAL_PATH, JOURNAL_COLUMNS, VALID_SETUP_GRADES, load_journal,
     add_entry, close_trade, compute_review_stats,
 )
 
@@ -44,7 +44,7 @@ def test_add_entry():
 
 
 def test_close_trade():
-    """Closing a trade fills exit fields and computes pnl_pct."""
+    """Closing a trade fills exit fields and computes pnl_pct and pnl_dollars."""
     test_path = "test_journal_tmp.csv"
     try:
         entry = {
@@ -287,6 +287,143 @@ def test_compute_review_stats():
         assert stats["total"] == 4
         assert stats["win_rate"] == 75.0
         assert abs(stats["avg_pnl"] - 2.5) < 0.01
+    finally:
+        if os.path.exists(test_path):
+            os.remove(test_path)
+
+
+# --- Setup grade tests ---
+
+def test_valid_setup_grades():
+    """Valid grades are A through D."""
+    assert VALID_SETUP_GRADES == ["A", "B", "C", "D"]
+
+
+def test_setup_grade_column_exists():
+    """setup_grade is part of the journal schema."""
+    assert "setup_grade" in JOURNAL_COLUMNS
+
+
+def test_add_entry_with_setup_grade():
+    """Setup grade is stored when provided."""
+    test_path = "test_journal_tmp.csv"
+    try:
+        entry = {
+            "date": "2026-03-16", "ticker": "SPY", "direction": "short",
+            "trade_type": "credit_spread", "spread_type": "call",
+            "short_strike": 672, "long_strike": 674,
+            "spread_width": 2.0, "contracts": 10, "credit": 0.10,
+            "entry_price": 0.10, "size": 1900.0,
+            "regime": "BEARISH", "breadth_trend": "DETERIORATING_FAST",
+            "setup_grade": "A",
+            "notes": "",
+        }
+        add_entry(entry, test_path)
+        df = load_journal(test_path)
+        assert df.iloc[0]["setup_grade"] == "A"
+    finally:
+        if os.path.exists(test_path):
+            os.remove(test_path)
+
+
+def test_add_entry_without_setup_grade():
+    """Missing setup_grade defaults to empty string (backward compat)."""
+    test_path = "test_journal_tmp.csv"
+    try:
+        entry = {
+            "date": "2026-03-16", "ticker": "SPY", "direction": "long",
+            "entry_price": 100.0, "size": 1000,
+            "regime": "NEUTRAL", "breadth_trend": "STEADY",
+            "notes": "",
+        }
+        add_entry(entry, test_path)
+        df = load_journal(test_path)
+        assert pd.isna(df.iloc[0]["setup_grade"]) or df.iloc[0]["setup_grade"] == ""
+    finally:
+        if os.path.exists(test_path):
+            os.remove(test_path)
+
+
+def test_compliance_column_in_schema():
+    """compliance is part of the journal schema."""
+    assert "compliance" in JOURNAL_COLUMNS
+
+
+def test_add_entry_with_compliance():
+    """Compliance field is stored when provided."""
+    test_path = "test_journal_tmp.csv"
+    try:
+        entry = {
+            "date": "2026-03-19", "ticker": "SPX", "direction": "short",
+            "trade_type": "credit_spread", "spread_type": "call",
+            "short_strike": 6800, "long_strike": 6820,
+            "spread_width": 20.0, "contracts": 5, "credit": 0.30,
+            "entry_price": 0.30, "size": 9850.0,
+            "regime": "CAUTIOUS", "breadth_trend": "SLIGHTLY_DETERIORATING",
+            "setup_grade": "A", "compliance": "compliant",
+            "notes": "",
+        }
+        add_entry(entry, test_path)
+        df = load_journal(test_path)
+        assert df.iloc[0]["compliance"] == "compliant"
+    finally:
+        if os.path.exists(test_path):
+            os.remove(test_path)
+
+
+def test_add_entry_with_violations():
+    """Violation descriptions are stored in compliance field."""
+    test_path = "test_journal_tmp.csv"
+    try:
+        entry = {
+            "date": "2026-03-19", "ticker": "SPX", "direction": "short",
+            "trade_type": "credit_spread", "spread_type": "put",
+            "short_strike": 6625, "long_strike": 6605,
+            "spread_width": 20.0, "contracts": 10, "credit": 1.35,
+            "entry_price": 1.35, "size": 18650.0,
+            "regime": "CAUTIOUS", "breadth_trend": "SLIGHTLY_DETERIORATING",
+            "setup_grade": "D", "compliance": "wrong_structure; oversized",
+            "notes": "Overrode regime warning",
+        }
+        add_entry(entry, test_path)
+        df = load_journal(test_path)
+        assert "wrong_structure" in df.iloc[0]["compliance"]
+    finally:
+        if os.path.exists(test_path):
+            os.remove(test_path)
+
+
+def test_review_stats_by_setup_grade():
+    """Review stats include win rate broken down by setup grade."""
+    test_path = "test_journal_tmp.csv"
+    try:
+        # A-grade winners
+        for i in range(3):
+            add_entry({
+                "date": f"2026-03-{10+i}", "ticker": "SPY", "direction": "long",
+                "entry_price": 100.0, "size": 1000,
+                "regime": "BULLISH", "breadth_trend": "IMPROVING",
+                "setup_grade": "A", "notes": "",
+            }, test_path)
+            close_trade(i, exit_price=105.0, exit_date=f"2026-03-{12+i}",
+                        exit_reason="target_full", path=test_path)
+
+        # C-grade loser
+        add_entry({
+            "date": "2026-03-15", "ticker": "SPY", "direction": "long",
+            "entry_price": 100.0, "size": 1000,
+            "regime": "BEARISH", "breadth_trend": "DETERIORATING",
+            "setup_grade": "C", "notes": "forced entry",
+        }, test_path)
+        close_trade(3, exit_price=97.0, exit_date="2026-03-16",
+                    exit_reason="stop", path=test_path)
+
+        stats = compute_review_stats(test_path)
+        assert "grade_stats" in stats
+        assert stats["grade_stats"]["A"]["total"] == 3
+        assert stats["grade_stats"]["A"]["win_rate"] == 100.0
+        assert stats["grade_stats"]["C"]["total"] == 1
+        assert stats["grade_stats"]["C"]["win_rate"] == 0.0
     finally:
         if os.path.exists(test_path):
             os.remove(test_path)
