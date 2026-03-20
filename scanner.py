@@ -15,7 +15,7 @@ import urllib.request
 
 from atr_swing_backtest import TICKERS, prepare_data, check_entry_conditions
 from breadth import load_breadth_data
-from compliance import REGIME_RULES, BASE_CONTRACTS
+from compliance import REGIME_RULES, BASE_CONTRACTS, STRUCTURE_NAMES
 
 # Google Sheets export URLs for Pradeep's market monitor data.
 # Key: year, Value: gviz CSV export URL.
@@ -218,11 +218,9 @@ def print_scan(results, breadth_df, scan_date):
     print(f"  Sizing:      {sizing}")
 
     # Pre-trade checklist
-    all_structures = {"call_credit": "Call credit spread", "put_credit": "Put credit spread",
-                      "iron_condor": "Iron condor"}
     allowed = rules["allowed_structures"]
-    blocked = [v for k, v in all_structures.items() if k not in allowed]
-    allowed_names = [all_structures[s] for s in allowed if s in all_structures]
+    blocked = [v for k, v in STRUCTURE_NAMES.items() if k not in allowed]
+    allowed_names = [STRUCTURE_NAMES[s] for s in allowed if s in STRUCTURE_NAMES]
     max_contracts = int(BASE_CONTRACTS * rules["sizing"])
 
     print(f"\n  PRE-TRADE CHECKLIST")

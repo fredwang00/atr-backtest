@@ -65,8 +65,10 @@ def parse_breadth_csv(filepath):
 
 def get_regime(df, idx):
     """
-    Classify market regime. Exact port of getRegime() from
-    market-monitor/app/src/App.tsx. Priority-ordered, first match wins.
+    Classify market regime based on breadth data.
+    Adapted from market-monitor/app/src/App.tsx with calibration
+    adjustments (rule #3 tightened to match decision matrix).
+    Priority-ordered, first match wins.
     """
     row = df.iloc[idx]
     qUp = row["quarterUp25"]
@@ -83,8 +85,10 @@ def get_regime(df, idx):
     if r10 < 0.5 or r5 < 0.4:
         return "BEARISH"
 
-    # 3. BEARISH — quarterly inversion with weak ratio
-    if qDn > qUp and r10 < 1.2:
+    # 3. BEARISH — deep quarterly inversion with weak ratio
+    #    Decision matrix: BEARISH needs ratio collapse territory, not just
+    #    mild inversion. Mild inversion + neutral ratio → CAUTIOUS (rule #5).
+    if qDn > qUp * 1.3 and r10 < 0.8:
         return "BEARISH"
 
     # 4-6 require 5-day lookback

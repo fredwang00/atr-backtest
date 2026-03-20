@@ -26,9 +26,13 @@ A single source of truth for regime-based trade rules, imported by both `scanner
 
 **Value mapping:** The journal stores `spread_type` as `"call"` or `"put"`. The `check_compliance` function accepts these journal values directly and maps them internally: `"call"` → `"call_credit"`, `"put"` → `"put_credit"`. Callers never need to know about the `allowed_structures` naming.
 
+**Display names:** `STRUCTURE_NAMES` dict maps internal structure keys to human-readable names (e.g., `"call_credit"` → `"Call credit spread"`). Used by the scanner checklist.
+
+**Violation type constants:** `VIOLATION_WRONG_STRUCTURE` and `VIOLATION_OVERSIZED` — used in return tuples and stored in the journal compliance field.
+
 **Function:** `check_compliance(regime, spread_type=None, contracts=None, base_contracts=BASE_CONTRACTS)`
 - `base_contracts` defaults to `BASE_CONTRACTS` (10). Callers don't need to pass it unless overriding.
-- Returns a list of violation strings. Empty list = compliant.
+- Returns a list of `(violation_type, message)` tuples. Empty list = compliant. `violation_type` is one of the constants above.
 - Checks:
   1. Whether `spread_type` is in the regime's allowed structures
   2. Whether `contracts` exceeds `base_contracts * sizing` multiplier

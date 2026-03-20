@@ -53,11 +53,20 @@ def test_bearish_ratio_collapse():
     assert get_regime(df, 4) == "BEARISH"
 
 
-def test_bearish_quarterly_inversion():
+def test_bearish_deep_quarterly_inversion():
+    """Deep quarterly inversion (30%+) with weak ratio → BEARISH."""
+    rows = [{"quarterUp25": 600, "quarterDown25": 900, "ratio10": 0.6,
+             "ratio5": 1.0, "t2108": 50, "down4": 100, "up4": 200}] * 5
+    df = _make_df(rows)
+    assert get_regime(df, 4) == "BEARISH"
+
+
+def test_mild_quarterly_inversion_is_cautious():
+    """Mild quarterly inversion with neutral ratio → CAUTIOUS, not BEARISH."""
     rows = [{"quarterUp25": 800, "quarterDown25": 900, "ratio10": 1.0,
              "ratio5": 1.5, "t2108": 50, "down4": 100, "up4": 200}] * 5
     df = _make_df(rows)
-    assert get_regime(df, 4) == "BEARISH"
+    assert get_regime(df, 4) == "CAUTIOUS"
 
 
 def test_bearish_persistent_selling():

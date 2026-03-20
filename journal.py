@@ -90,14 +90,27 @@ def get_open_trades(path=JOURNAL_PATH):
     return df[df["exit_date"].isna() | (df["exit_date"] == "")]
 
 
-def compute_review_stats(path=JOURNAL_PATH, trade_type=None):
+def _group_stats(grp):
+    """Compute win rate and avg P&L for a group of trades."""
+    pnls = grp["pnl_pct"].astype(float)
+    winners = pnls[pnls > 0]
+    return {
+        "total": len(grp),
+        "win_rate": len(winners) / len(grp) * 100 if len(grp) > 0 else 0,
+        "avg_pnl": pnls.mean(),
+    }
+
+
+def compute_review_stats(path=JOURNAL_PATH, trade_type=None, df=None):
     """Compute review statistics from closed trades.
 
     Args:
         path: Path to journal CSV.
         trade_type: Filter to "swing" or "credit_spread". None = all trades.
+        df: Pre-loaded DataFrame. If None, reads from path.
     """
-    df = load_journal(path)
+    if df is None:
+        df = load_journal(path)
     closed = df[df["exit_price"].notna() & (df["exit_price"] != "")]
 
     if trade_type is not None and len(closed) > 0:
@@ -108,7 +121,8 @@ def compute_review_stats(path=JOURNAL_PATH, trade_type=None):
         closed = closed[tt == trade_type]
 
     if len(closed) == 0:
-        return {"total": 0, "win_rate": 0, "avg_pnl": 0, "profit_factor": 0, "regimes": {}}
+        return {"total": 0, "win_rate": 0, "avg_pnl": 0, "profit_factor": 0,
+                "regimes": {}, "grade_stats": {}, "compliance_stats": {}}
 
     pnls = closed["pnl_pct"].astype(float)
     winners = pnls[pnls > 0]
@@ -137,14 +151,7 @@ def compute_review_stats(path=JOURNAL_PATH, trade_type=None):
         grades = closed["setup_grade"].fillna("").replace("", pd.NA).dropna()
         grade_stats = {}
         for grade in grades.unique():
-            grp = closed[closed["setup_grade"] == grade]
-            grp_pnls = grp["pnl_pct"].astype(float)
-            grp_winners = grp_pnls[grp_pnls > 0]
-            grade_stats[grade] = {
-                "total": len(grp),
-                "win_rate": len(grp_winners) / len(grp) * 100 if len(grp) > 0 else 0,
-                "avg_pnl": grp_pnls.mean(),
-            }
+            grade_stats[grade] = _group_stats(closed[closed["setup_grade"] == grade])
         result["grade_stats"] = grade_stats
     else:
         result["grade_stats"] = {}
@@ -159,13 +166,7 @@ def compute_review_stats(path=JOURNAL_PATH, trade_type=None):
             else:
                 grp = closed[comp == label]
             if len(grp) > 0:
-                grp_pnls = grp["pnl_pct"].astype(float)
-                grp_winners = grp_pnls[grp_pnls > 0]
-                compliance_stats[label] = {
-                    "total": len(grp),
-                    "win_rate": len(grp_winners) / len(grp) * 100 if len(grp) > 0 else 0,
-                    "avg_pnl": grp_pnls.mean(),
-                }
+                compliance_stats[label] = _group_stats(grp)
     result["compliance_stats"] = compliance_stats
 
     return result
@@ -265,20 +266,18 @@ def interactive_log():
 
             setup_grade = _prompt_setup_grade()
 
-            from compliance import check_compliance
+            from compliance import check_compliance, REGIME_RULES
+            rules = REGIME_RULES.get(regime, REGIME_RULES["UNKNOWN"])
             violations = check_compliance(regime, spread_type=spread_type, contracts=contracts)
             if violations:
                 print()
-                for v in violations:
-                    print(f"  ⚠ REGIME VIOLATION: {v}")
+                for vtype, msg in violations:
+                    print(f"  ⚠ REGIME VIOLATION: {msg}")
                 confirm = input("\n  Log anyway? [y/N]: ").strip().lower()
                 if confirm != "y":
                     print("  Trade not logged.")
                     return
-                compliance_str = "; ".join(
-                    "wrong_structure" if "structure" in v.lower() else "oversized"
-                    for v in violations
-                )
+                compliance_str = "; ".join(vtype for vtype, _ in violations)
             else:
                 compliance_str = "compliant"
 
@@ -292,7 +291,7 @@ def interactive_log():
                 "short_strike": short_strike, "long_strike": long_strike,
                 "spread_width": spread_width, "contracts": contracts,
                 "credit": credit, "entry_price": credit,
-                "size": max_risk, "size_mult": 1.0,
+                "size": max_risk, "size_mult": rules["sizing"],
                 "regime": regime, "breadth_trend": breadth_trend,
                 "setup_grade": setup_grade,
                 "compliance": compliance_str,
@@ -328,7 +327,8 @@ def interactive_log():
                 trigger = mid = full = stop = 0.0
 
             setup_grade = _prompt_setup_grade()
-            size_mult = 0.5 if breadth_trend in {"DETERIORATING", "DETERIORATING_FAST"} else 1.0
+            from compliance import REGIME_RULES
+            size_mult = REGIME_RULES.get(regime, REGIME_RULES["UNKNOWN"])["sizing"]
 
             entry = {
                 "date": pd.Timestamp.now().strftime("%Y-%m-%d"),
@@ -354,8 +354,9 @@ def print_review():
     print(f"  TRADE JOURNAL REVIEW")
     print(f"{'='*60}")
 
-    swing_stats = compute_review_stats(trade_type="swing")
-    cs_stats = compute_review_stats(trade_type="credit_spread")
+    journal_df = load_journal()
+    swing_stats = compute_review_stats(df=journal_df, trade_type="swing")
+    cs_stats = compute_review_stats(df=journal_df, trade_type="credit_spread")
     has_any = swing_stats["total"] > 0 or cs_stats["total"] > 0
 
     if not has_any:
@@ -387,7 +388,7 @@ def print_review():
                 print(f"  [!] {cs_stats['total']} trades — too few to draw conclusions")
 
         # Regime distribution across all trades
-        all_stats = compute_review_stats()
+        all_stats = compute_review_stats(df=journal_df)
         if all_stats.get("regimes"):
             print(f"\n  Regime distribution (all trades):")
             for regime, count in sorted(all_stats["regimes"].items(), key=lambda x: -x[1]):

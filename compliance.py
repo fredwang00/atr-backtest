@@ -53,6 +53,15 @@ REGIME_RULES = {
     },
 }
 
+STRUCTURE_NAMES = {
+    "call_credit": "Call credit spread",
+    "put_credit": "Put credit spread",
+    "iron_condor": "Iron condor",
+}
+
+VIOLATION_WRONG_STRUCTURE = "wrong_structure"
+VIOLATION_OVERSIZED = "oversized"
+
 _SPREAD_TYPE_MAP = {
     "call": "call_credit",
     "put": "put_credit",
@@ -69,7 +78,8 @@ def check_compliance(regime, spread_type=None, contracts=None, base_contracts=BA
         base_contracts: Base contract count (default BASE_CONTRACTS).
 
     Returns:
-        List of violation description strings. Empty list = compliant.
+        List of (violation_type, message) tuples. Empty list = compliant.
+        violation_type is VIOLATION_WRONG_STRUCTURE or VIOLATION_OVERSIZED.
     """
     rules = REGIME_RULES.get(regime, REGIME_RULES["UNKNOWN"])
     violations = []
@@ -77,19 +87,21 @@ def check_compliance(regime, spread_type=None, contracts=None, base_contracts=BA
     if spread_type is not None:
         mapped = _SPREAD_TYPE_MAP.get(spread_type, spread_type)
         if mapped not in rules["allowed_structures"]:
-            allowed = [s.replace("_", " ") for s in rules["allowed_structures"]]
-            allowed_str = ", ".join(allowed) if allowed else "none (no premium selling)"
-            violations.append(
-                f"Wrong structure: {spread_type} credit spread not allowed in "
-                f"{regime} regime. Allowed: {allowed_str}."
-            )
+            allowed_names = [STRUCTURE_NAMES.get(s, s) for s in rules["allowed_structures"]]
+            allowed_str = ", ".join(allowed_names) if allowed_names else "none (no premium selling)"
+            violations.append((
+                VIOLATION_WRONG_STRUCTURE,
+                f"{spread_type} credit spread not allowed in "
+                f"{regime} regime. Allowed: {allowed_str}.",
+            ))
 
     if contracts is not None:
         max_contracts = int(base_contracts * rules["sizing"])
         if contracts > max_contracts:
-            violations.append(
-                f"Oversized: {contracts} contracts exceeds {rules['sizing']}x "
-                f"sizing (max {max_contracts} of {base_contracts} base)."
-            )
+            violations.append((
+                VIOLATION_OVERSIZED,
+                f"{contracts} contracts exceeds {rules['sizing']}x "
+                f"sizing (max {max_contracts} of {base_contracts} base).",
+            ))
 
     return violations

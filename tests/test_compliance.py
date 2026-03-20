@@ -1,4 +1,8 @@
-from compliance import REGIME_RULES, BASE_CONTRACTS, check_compliance
+from compliance import (
+    REGIME_RULES, BASE_CONTRACTS, STRUCTURE_NAMES,
+    VIOLATION_WRONG_STRUCTURE, VIOLATION_OVERSIZED,
+    check_compliance,
+)
 
 
 def test_all_regimes_covered():
@@ -23,6 +27,15 @@ def test_base_contracts_default():
     assert BASE_CONTRACTS == 10
 
 
+def test_structure_names_covers_all_structures():
+    """STRUCTURE_NAMES has a display name for every structure used in REGIME_RULES."""
+    all_structures = set()
+    for rules in REGIME_RULES.values():
+        all_structures.update(rules["allowed_structures"])
+    for s in all_structures:
+        assert s in STRUCTURE_NAMES, f"Missing display name for {s}"
+
+
 def test_compliant_call_spread_in_cautious():
     """Call spread with correct sizing in CAUTIOUS → no violations."""
     violations = check_compliance("CAUTIOUS", spread_type="call", contracts=5)
@@ -33,14 +46,14 @@ def test_put_spread_blocked_in_cautious():
     """Put spread in CAUTIOUS → violation."""
     violations = check_compliance("CAUTIOUS", spread_type="put", contracts=5)
     assert len(violations) == 1
-    assert "put" in violations[0].lower() or "structure" in violations[0].lower()
+    assert violations[0][0] == VIOLATION_WRONG_STRUCTURE
 
 
 def test_oversized_in_cautious():
     """10 contracts when max is 5 (0.5x of 10) → violation."""
     violations = check_compliance("CAUTIOUS", spread_type="call", contracts=10)
     assert len(violations) == 1
-    assert "size" in violations[0].lower() or "contract" in violations[0].lower()
+    assert violations[0][0] == VIOLATION_OVERSIZED
 
 
 def test_put_spread_and_oversized_in_cautious():
@@ -83,7 +96,7 @@ def test_no_spread_type_skips_structure_check():
 def test_extreme_bearish_any_contracts_oversized():
     """EXTREME_BEARISH has 0.0 sizing — any contracts should flag oversized."""
     violations = check_compliance("EXTREME_BEARISH", spread_type="call", contracts=1)
-    assert any("size" in v.lower() or "oversized" in v.lower() for v in violations)
+    assert any(vtype == VIOLATION_OVERSIZED for vtype, _ in violations)
 
 
 def test_unrecognized_regime_falls_back_to_unknown():
