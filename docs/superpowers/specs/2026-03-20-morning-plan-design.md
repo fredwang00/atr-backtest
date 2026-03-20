@@ -16,8 +16,11 @@ A standalone script that mirrors Saty's 5-minute morning routine.
 **Usage:**
 ```
 python morning.py                     # today's plan
+python morning.py --fetch             # pull latest breadth CSV first
 python morning.py --date 2026-03-19   # historical replay
 ```
+
+When `--date` is provided, all data (VIX, SPY, QQQ, breadth) is filtered to that date. "Yesterday's close" means the trading day before the `--date` value, matching how the scanner handles `--date` (filter DataFrame index to `<= target`, use the last row). `--fetch` pulls the latest breadth CSV from Google Sheets before running, same as `scanner.py --fetch`.
 
 **Output sections (in order):**
 
@@ -39,7 +42,7 @@ Reads `/Users/fwang/Documents/clearwater/daily/YYYY-MM-DD.md`, parses YAML front
 - `recovery < 33` → `WARNING: low recovery — reduce size`
 - Otherwise → `OK`
 
-If today's file doesn't exist, prints `No readiness data for today` with no warning or block.
+If today's file doesn't exist, prints `No readiness data for today` with no warning or block. If the file exists but a key is missing (e.g., no `recovery`), skip that rule — only evaluate rules for keys that are present.
 
 ### VIX Pivot
 
@@ -67,9 +70,13 @@ No new computation — just formatting existing indicator output.
 
 ### Regime & Checklist
 
-Reuses `load_breadth_data` from `breadth.py` and `REGIME_RULES`/`STRUCTURE_NAMES`/`BASE_CONTRACTS` from `compliance.py`. Same display logic as the scanner's breadth dashboard and pre-trade checklist.
+Reuses `load_breadth_data` from `breadth.py` and `REGIME_RULES`/`STRUCTURE_NAMES`/`BASE_CONTRACTS` from `compliance.py`.
+
+The regime + checklist display logic (~25 lines) currently lives inline in `scanner.py:print_scan`. Rather than duplicate it, extract it into a shared function `print_regime_checklist(regime, score, trend, r10, bias)` that both `scanner.py` and `morning.py` can call. This function moves to a natural home — either `compliance.py` (since it already owns the rules) or a small `display.py`. Since the function only formats and prints, and compliance.py is pure data/logic, a `display.py` would be cleaner. But for YAGNI, putting it in `compliance.py` is fine — it's a one-function extraction, not a new abstraction layer.
 
 ## Files Changed
 
 - **New:** `morning.py` — pre-market planning command
 - **New:** `tests/test_morning.py` — unit tests for VIX pivot and readiness parsing
+- **Modified:** `scanner.py` — extract regime/checklist display into shared function, call it
+- **Modified:** `compliance.py` — add `print_regime_checklist()` shared display function
