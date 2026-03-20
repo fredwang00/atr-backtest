@@ -1,6 +1,9 @@
 import os
 import tempfile
-from morning import compute_vix_pivot, load_readiness
+
+import pandas as pd
+
+from morning import compute_vix_pivot, load_readiness, _get_breadth_for_date, print_morning_plan
 
 
 def test_vix_pivot_rounds_down():
@@ -117,3 +120,51 @@ def test_readiness_sleep_boundary_78_ok():
 def test_readiness_file_not_found():
     """Missing file returns None."""
     assert load_readiness("/nonexistent/path.md") is None
+
+
+def _make_breadth_df():
+    """Helper: minimal breadth DataFrame for testing."""
+    df = pd.DataFrame({
+        "regime": ["BEARISH"],
+        "breadth_score": [-3],
+        "breadth_trend": ["SLIGHTLY_DETERIORATING"],
+        "ratio10": [0.75],
+        "ratio10_bias": ["short"],
+    }, index=pd.to_datetime(["2026-03-19"]))
+    return df
+
+
+def test_get_breadth_for_date_found():
+    """Returns breadth data when date is in range."""
+    df = _make_breadth_df()
+    result = _get_breadth_for_date(df, pd.Timestamp("2026-03-19"))
+    assert result["regime"] == "BEARISH"
+    assert result["score"] == -3
+
+
+def test_get_breadth_for_date_empty():
+    """Returns UNKNOWN when date is before all data."""
+    df = _make_breadth_df()
+    result = _get_breadth_for_date(df, pd.Timestamp("2010-01-01"))
+    assert result["regime"] == "UNKNOWN"
+
+
+def test_print_morning_plan_smoke(capsys):
+    """Smoke test: print_morning_plan runs without error and prints key sections."""
+    print_morning_plan(
+        plan_date="2026-03-20",
+        readiness={"sleep_score": 85, "recovery": 50, "hrv": 31.7,
+                   "status": "OK", "warnings": []},
+        vix_close=17.23,
+        vix_pivot=17.0,
+        spy_levels=None,
+        qqq_levels=None,
+        breadth={"regime": "BEARISH", "score": -3,
+                 "trend": "SLIGHTLY_DETERIORATING", "r10": 0.75, "bias": "short"},
+    )
+    output = capsys.readouterr().out
+    assert "MORNING PLAN" in output
+    assert "READINESS" in output
+    assert "VIX PIVOT" in output
+    assert "17.0" in output
+    assert "BEARISH" in output
