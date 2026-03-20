@@ -105,3 +105,39 @@ def check_compliance(regime, spread_type=None, contracts=None, base_contracts=BA
             ))
 
     return violations
+
+
+def print_regime_checklist(regime, score, trend, r10, bias):
+    """Print the regime dashboard and pre-trade checklist.
+
+    Shared by scanner.py and morning.py. Displays regime, health,
+    ratio10 bias, sizing, allowed/blocked structures, and notes.
+    """
+    rules = REGIME_RULES.get(regime, REGIME_RULES["UNKNOWN"])
+    sizing = rules["label"]
+
+    print(f"\n  {'='*66}")
+    print(f"  REGIME & CHECKLIST")
+    print(f"  {'-'*66}")
+    print(f"  Regime:      {regime}")
+    print(f"  Health:      {score:+d} ({trend})")
+    print(f"  Ratio10:     {r10:.2f} ({bias})")
+    print(f"  Sizing:      {sizing}")
+
+    allowed = rules["allowed_structures"]
+    blocked = [v for k, v in STRUCTURE_NAMES.items() if k not in allowed]
+    allowed_names = [STRUCTURE_NAMES[s] for s in allowed if s in STRUCTURE_NAMES]
+    max_contracts = int(BASE_CONTRACTS * rules["sizing"])
+
+    print(f"\n  PRE-TRADE CHECKLIST")
+    print(f"  {'-'*66}")
+    if allowed_names:
+        for name in allowed_names:
+            print(f"    Allowed:    {name}")
+    else:
+        print(f"    Allowed:    None (no premium selling)")
+    if blocked:
+        print(f"    Blocked:    {', '.join(blocked)}")
+    print(f"    Max size:   {rules['sizing']}x base -> {max_contracts} contracts")
+    print(f"    Note:       {rules['notes']}")
+    print()

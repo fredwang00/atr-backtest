@@ -106,4 +106,4 @@ def test_scanner_runs_without_error():
     )
     assert result.returncode == 0, f"stderr: {result.stderr}"
     assert "ATR SWING SCANNER" in result.stdout
-    assert "BREADTH DASHBOARD" in result.stdout
+    assert "REGIME & CHECKLIST" in result.stdout

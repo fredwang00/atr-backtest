@@ -15,7 +15,7 @@ import urllib.request
 
 from atr_swing_backtest import TICKERS, prepare_data, check_entry_conditions
 from breadth import load_breadth_data
-from compliance import REGIME_RULES, BASE_CONTRACTS, STRUCTURE_NAMES
+from compliance import REGIME_RULES, BASE_CONTRACTS, STRUCTURE_NAMES, print_regime_checklist
 
 # Google Sheets export URLs for Pradeep's market monitor data.
 # Key: year, Value: gviz CSV export URL.
@@ -208,33 +208,7 @@ def print_scan(results, breadth_df, scan_date):
                   f"pivot ${c['central_pivot']:.2f} | "
                   f"${c['long_trigger']:.2f} / ${c['full_long']:.2f} long")
 
-    # Breadth dashboard
-    print(f"\n  {'='*66}")
-    print(f"  BREADTH DASHBOARD")
-    print(f"  {'-'*66}")
-    print(f"  Regime:      {regime}")
-    print(f"  Health:      {score:+d} ({trend})")
-    print(f"  Ratio10:     {r10:.2f} ({bias})")
-    print(f"  Sizing:      {sizing}")
-
-    # Pre-trade checklist
-    allowed = rules["allowed_structures"]
-    blocked = [v for k, v in STRUCTURE_NAMES.items() if k not in allowed]
-    allowed_names = [STRUCTURE_NAMES[s] for s in allowed if s in STRUCTURE_NAMES]
-    max_contracts = int(BASE_CONTRACTS * rules["sizing"])
-
-    print(f"\n  PRE-TRADE CHECKLIST")
-    print(f"  {'-'*66}")
-    if allowed_names:
-        for name in allowed_names:
-            print(f"    Allowed:    {name}")
-    else:
-        print(f"    Allowed:    None (no premium selling)")
-    if blocked:
-        print(f"    Blocked:    {', '.join(blocked)}")
-    print(f"    Max size:   {rules['sizing']}x base -> {max_contracts} contracts")
-    print(f"    Note:       {rules['notes']}")
-    print()
+    print_regime_checklist(regime, score, trend, r10, bias)
 
 
 def main():

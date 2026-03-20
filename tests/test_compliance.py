@@ -1,7 +1,7 @@
 from compliance import (
     REGIME_RULES, BASE_CONTRACTS, STRUCTURE_NAMES,
     VIOLATION_WRONG_STRUCTURE, VIOLATION_OVERSIZED,
-    check_compliance,
+    check_compliance, print_regime_checklist,
 )
 
 
@@ -103,3 +103,31 @@ def test_unrecognized_regime_falls_back_to_unknown():
     """Completely unrecognized regime string uses UNKNOWN (CAUTIOUS) rules."""
     violations = check_compliance("FOOBAR", spread_type="put", contracts=5)
     assert len(violations) >= 1
+
+
+def test_print_regime_checklist_bearish(capsys):
+    """Bearish regime prints no allowed structures and correct sizing."""
+    print_regime_checklist("BEARISH", score=-3, trend="SLIGHTLY_DETERIORATING",
+                           r10=0.75, bias="short")
+    output = capsys.readouterr().out
+    assert "BEARISH" in output
+    assert "None (no premium selling)" in output
+    assert "0.25x" in output
+
+
+def test_print_regime_checklist_bullish(capsys):
+    """Bullish regime prints all structures allowed."""
+    print_regime_checklist("BULLISH", score=4, trend="IMPROVING",
+                           r10=2.1, bias="long")
+    output = capsys.readouterr().out
+    assert "FULL SIZE" in output
+    assert "Call credit spread" in output
+    assert "Put credit spread" in output
+
+
+def test_print_regime_checklist_unknown_regime(capsys):
+    """Unknown regime falls back to CAUTIOUS display."""
+    print_regime_checklist("UNKNOWN", score=0, trend="UNKNOWN",
+                           r10=0, bias="unknown")
+    output = capsys.readouterr().out
+    assert "call spreads only" in output.lower() or "Call credit spread" in output
