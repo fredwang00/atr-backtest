@@ -214,16 +214,20 @@ def interactive_log():
         is_cs = str(picked_row.get("trade_type", "")).strip() == "credit_spread"
 
         if is_cs:
-            print("  Exit reason: expired_otm / closed / stop / rolled")
-            exit_reason = input("  Reason: ").strip()
+            cs_reasons = ["expired_otm", "closed", "stop", "rolled"]
+            print("  Exit reason: (1) expired_otm  (2) closed  (3) stop  (4) rolled")
+            raw = input("  Reason [1-4]: ").strip()
+            exit_reason = cs_reasons[int(raw) - 1] if raw.isdigit() and 1 <= int(raw) <= 4 else raw
             if exit_reason == "expired_otm":
                 exit_price = 0.0
             else:
                 exit_price = float(input("  Debit paid per spread: $").strip())
         else:
             exit_price = float(input("  Exit price: $").strip())
-            print("  Exit reason: target_full / stop / time / discretionary")
-            exit_reason = input("  Reason: ").strip()
+            swing_reasons = ["target_full", "stop", "time", "discretionary"]
+            print("  Exit reason: (1) target_full  (2) stop  (3) time  (4) discretionary")
+            raw = input("  Reason [1-4]: ").strip()
+            exit_reason = swing_reasons[int(raw) - 1] if raw.isdigit() and 1 <= int(raw) <= 4 else raw
 
         exit_date = input("  Exit date [YYYY-MM-DD, blank=today]: ").strip()
         if not exit_date:
